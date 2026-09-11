@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CarryCtx initialization with bootstrap (`CTX-0001`) and v1 implementation
   (`CTX-0002`) tasks.
 
+### Changed
+
+- `just check` now runs the Lua 5.4 behavior suite and the LuaLS/SDK-linter
+  conformance wrappers (`just test`), and CI installs `lua5.4` before the
+  gates so the behavior suite is an always-on check (`CTX-0003`).
+
 ### Security
 
 - Least-privilege manifest: `terminal.semantic-read` and `platform.notify`

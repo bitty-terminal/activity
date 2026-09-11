@@ -17,11 +17,12 @@ Priority: P0/P1/P2 | Area: plugins | Labels: feat | Milestone: v0.1.0 | RFC: OQ-
 
 ## Quality gates
 
-- [ ] `just check` passes (lint + fmt-check + manifest + lua)
+- [ ] `just check` passes (lint + fmt-check + manifest + lua + test)
 - [ ] `just fmt-check` passes (Prettier 3.9.6)
 - [ ] `just lint` passes (markdownlint-cli2 0.23.2)
 - [ ] `just manifest` passes (transitional validator; SDK `bitty-plugin-lint` evidence attached where available)
 - [ ] `just lua` passes (luaparse 0.3.1)
+- [ ] `just test` passes (lua5.4 behavior suite; LuaLS and SDK-linter wrappers green or documented skips)
 - [ ] `actionlint` passes (actionlint 1.7.12)
 
 ## Security impact

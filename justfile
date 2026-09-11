@@ -61,8 +61,26 @@ manifest:
 lua:
     bunx --bun luaparse@{{luaparse_pin}} --quiet --file lua/activity/init.lua
 
+# Run the Lua 5.4 behavior suite (redaction, aggregation, lifecycle, commands).
+# Requires lua5.4 (plugin VM baseline per ADR 0005).
+test-lua:
+    lua5.4 tests/run.lua
+
+# LuaLS conformance against the vendored Plugin API v1 definitions. Skips with
+# exit 0 when lua-language-server is unavailable (set LUA_LANGUAGE_SERVER).
+test-luals:
+    bun tests/check-lua-luals.mjs
+
+# Authoritative SDK manifest check. Skips with exit 0 when bitty-plugin-lint is
+# undiscoverable; set BITTY_PLUGIN_LINT to the SDK CLI entry to force it.
+test-manifest:
+    bun tests/check-manifest-lint.mjs
+
+# Run all behavior and conformance tests.
+test: test-lua test-luals test-manifest
+
 # Aggregate gate run locally and in CI.
-check: lint fmt-check manifest lua
+check: lint fmt-check manifest lua test
 
 # Publish a ctxpack snapshot to the activity-workflow mirror (commander
 # merge closeout only; never a git hook). Dry run exports + validates

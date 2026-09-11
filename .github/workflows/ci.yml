@@ -30,8 +30,14 @@ jobs:
           bun-version: 1.4.0
       - name: Install pinned dependencies
         run: bun install --frozen-lockfile
+      - name: Install Lua 5.4
+        run: |
+          sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
+          sudo apt-get install -y --no-install-recommends lua5.4
+        timeout-minutes: 5
       - name: Run quality gates
         run: just check
+        timeout-minutes: 8
 
   actionlint:
     name: Lint GitHub Actions workflows
