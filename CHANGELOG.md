@@ -48,6 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `just check` now runs the Lua 5.4 behavior suite and the LuaLS/SDK-linter
   conformance wrappers (`just test`), and CI installs `lua5.4` before the
   gates so the behavior suite is an always-on check (`CTX-0003`).
+- CarryCtx snapshots are published in-repo on `refs/heads/carryctx-snapshots`
+  and the separate `activity-workflow` mirror repository is retired
+  (`CTX-0004`).
+- The `snapshot-source` workflow also runs on a daily schedule and on manual
+  dispatch, so a missed snapshot publication is caught even when `main` is
+  idle (`CTX-0005`).
 
 ### Security
 
