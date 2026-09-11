@@ -1,0 +1,72 @@
+# Contributing to activity
+
+This guide is for contributors to the `activity` plugin repository. The
+repository is pre-implementation: everything here is governance scaffolding,
+a minimal scaffold, and a candidate plugin layout, not shipped behavior.
+
+## Repository ground rules
+
+- Read [AGENTS.md](AGENTS.md) before making any change. It defines authority,
+  scope boundaries, CarryCtx workflow, toolchain policy, and the security and
+  privacy constraints that override convenience.
+- Canonical plugin architecture, API, packaging, compatibility, and security
+  contracts live in `bitty-docs`. This repository must not invent
+  capabilities, lifecycle semantics, or release policy independently.
+- Never commit, push, publish packages, or mutate remote state without
+  explicit authorization from the owning task.
+
+## Prerequisites
+
+Toolchain expectations (version pins live exclusively in the justfile and are
+mirrored by [package.json](package.json); never invoke formatters or linters
+by name):
+
+- `just` — command runner owning all quality-gate invocations.
+- `bun` / `bunx --bun` — JavaScript execution and package management. Never
+  use `npm`, `npx`, or `yarn` in any Bitty repository.
+- `markdownlint-cli2`, `prettier`, `commitlint`, `lefthook` — pinned and
+  invoked through the justfile.
+
+## Development setup
+
+1. Enter this repository before running Git, CarryCtx, or toolchain commands.
+2. Install pinned development dependencies: `bun install`.
+3. Enable Git hooks (optional): `just hooks-install`.
+4. Run all quality gates: `just check` (Markdown lint, Prettier format check,
+   manifest validation, and Lua parse). CI runs the same aggregate target.
+5. Record scoped work in CarryCtx (task, session, progress, checkpoint) and
+   stop at review; independent review is required for acceptance.
+
+## Delivery lifecycle
+
+Changes follow Issue -> Branch -> Commit -> Pull Request -> Review -> Merge,
+where independent review plus required CI must pass before merge. Before this
+repository's first commit, branch/worktree/commit/pull-request stages are
+unavailable: initialization happens in a shared checkout with explicit
+disjoint scopes, preserved unrelated changes, and CI-equivalent local checks.
+
+Every pull request states its Issue and CarryCtx task links, impact areas,
+security and privacy impact, reproducible gate evidence, and documentation
+synchronization status. Labels (`feat`/`fix`/`docs`/`chore`, `P0`/`P1`/`P2`,
+`area:*`) and milestone `v0.1.0` are kept in sync.
+
+## Capabilities and privacy
+
+Manifest capability requests are deny by default and must stay minimal. The
+scaffold requests only `terminal.semantic-read` and `platform.notify`; any
+wider request requires an explicitly scoped task plus a reviewed privacy and
+security note. Never add high-risk capabilities, install scripts, secrets, or
+ambient authority as a side effect of an unrelated change.
+
+## Workflow mirror
+
+The engineering workflow is mirrored to
+[activity-workflow](https://github.com/bitty-terminal/activity-workflow).
+Merges run `just workflow-publish` (dry run: `just workflow-publish-dry`) as
+part of the commander closeout; snapshots are redacted and never merged back.
+Fresh clones restore with `just workflow-import` (`just workflow-import-dry`).
+
+## Reporting
+
+Report bugs and feature requests through the GitHub issue templates. Report
+security issues privately per [SECURITY.md](SECURITY.md).

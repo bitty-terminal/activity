@@ -1,0 +1,41 @@
+# Bitty plugin manifest.
+#
+# File name, keys, and limits are the accepted v1 contract in bitty-docs
+# `docs/specifications/plugin-platform-rfc.md` (OQ-012). The plugin manager and
+# the host parse this file independently before any plugin code runs.
+#
+# `just manifest` validates this file with the generated transitional
+# validator (`scripts/validate-manifest.mjs`); `bitty-plugin-lint` from
+# bitty-plugin-sdk (R-SDK-2) is the authoritative check against the same
+# accepted contract.
+
+[plugin]
+id = "bitty-featured.activity"
+name = "Bitty Activity"
+version = "0.1.0"
+description = "Privacy-first local activity timeline plugin for the Bitty terminal."
+license = "MIT"
+
+[compat]
+# Application and Plugin API ranges. Adjust to the host release you target;
+# both are syntax-validated here and resolved by the host at install time.
+bitty = ">=0.5,<1.0"
+plugin-api = "^1.0"
+
+[capabilities]
+# Deny by default: omit this table entirely when the plugin needs no authority.
+# Request capabilities one by one; unknown identifiers fail validation and
+# there is no allow-all identifier.
+#
+# v1 intent (PX-1199): read semantic terminal snapshots to build local
+# activity aggregates (counts, durations, cwd) and surface a local summary.
+# Command arguments are never stored (`store_command_args` defaults to false)
+# and no other authority (filesystem, process, network, clipboard, terminal
+# input) is requested. High-risk identifiers are intentionally absent.
+terminal.semantic-read = true
+platform.notify = true
+
+[lazy]
+# Static triggers let the host register the plugin without creating a VM.
+# Commands are plugin-qualified: `<plugin-id>:<resource>`.
+commands = ["bitty-featured.activity:summary"]

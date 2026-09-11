@@ -1,0 +1,15 @@
+{
+  "name": "activity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Privacy-first local activity timeline plugin for the Bitty terminal.",
+  "license": "MIT",
+  "devDependencies": {
+    "@commitlint/cli": "21.2.2",
+    "@commitlint/config-conventional": "21.2.2",
+    "lefthook": "2.1.12",
+    "markdownlint-cli2": "0.23.2",
+    "prettier": "3.9.6"
+  }
+}
