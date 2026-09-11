@@ -19,19 +19,20 @@ and validated against
 
 ## Layout
 
-| Path                            | Purpose                                                                                            |
-| ------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `bitty-plugin.toml`             | Static manifest: identity, compatibility, capability requests, and lazy commands/events.           |
-| `lua/activity/init.lua`         | Entry point evaluated once per activation; registrations and event subscriptions.                  |
-| `lua/activity/aggregate.lua`    | Bounded aggregate state, retention, exit/duration bucketing, and summary rendering.                |
-| `lua/activity/redact.lua`       | cwd reduction to bounded, non-reconstructable labels (final path segment).                         |
-| `tests/`                        | Behavior tests, mock host stub, LuaLS conformance, and SDK linter wrapper (see `tests/README.md`). |
-| `scripts/validate-manifest.mjs` | Transitional manifest check using the Bun TOML parser; no dependencies.                            |
-| `scripts/publish-ctxpack*.sh`   | CarryCtx snapshot publisher for the `activity-workflow` mirror.                                    |
-| `scripts/fetch-ctxpack*.sh`     | Fresh-clone restore from the `activity-workflow` mirror LATEST snapshot.                           |
-| `justfile`                      | Quality gates with pinned tool versions.                                                           |
-| `.github/workflows/ci.yml`      | CI quality gate with a read-only token and SHA-pinned actions.                                     |
-| `.github/workflows/codeql.yml`  | CodeQL analysis (`actions`, `javascript-typescript`).                                              |
+| Path                                    | Purpose                                                                                            |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `bitty-plugin.toml`                     | Static manifest: identity, compatibility, capability requests, and lazy commands/events.           |
+| `lua/activity/init.lua`                 | Entry point evaluated once per activation; registrations and event subscriptions.                  |
+| `lua/activity/aggregate.lua`            | Bounded aggregate state, retention, exit/duration bucketing, and summary rendering.                |
+| `lua/activity/redact.lua`               | cwd reduction to bounded, non-reconstructable labels (final path segment).                         |
+| `tests/`                                | Behavior tests, mock host stub, LuaLS conformance, and SDK linter wrapper (see `tests/README.md`). |
+| `scripts/validate-manifest.mjs`         | Transitional manifest check using the Bun TOML parser; no dependencies.                            |
+| `scripts/workflow-publish.sh`           | In-repo CarryCtx snapshot publisher (`carryctx export --publication` + ref push).                  |
+| `scripts/workflow-import.sh`            | Fresh-clone restore from `refs/heads/carryctx-snapshots`.                                          |
+| `justfile`                              | Quality gates with pinned tool versions.                                                           |
+| `.github/workflows/ci.yml`              | CI quality gate with a read-only token and SHA-pinned actions.                                     |
+| `.github/workflows/codeql.yml`          | CodeQL analysis (`actions`, `javascript-typescript`).                                              |
+| `.github/workflows/snapshot-source.yml` | CarryCtx snapshot staleness gate (push to `main`/`carryctx-snapshots`).                            |
 
 ## Behavior (v1)
 
@@ -120,20 +121,25 @@ High-risk identifiers (`terminal.raw-read`, `terminal.input.all`,
 `ui.protocol-register`, `debug.control`, `runtime.plugin-manage`) are
 intentionally absent.
 
-## Workflow mirror
+## Workflow snapshot restore
 
-The engineering workflow (tasks, sessions, decisions, checkpoints) is
-mirrored to the public
-[activity-workflow](https://github.com/bitty-terminal/activity-workflow)
-repository after merges. On a fresh clone, restore the local CarryCtx DB from
-the latest snapshot:
+CarryCtx runtime state (`.git/carryctx/state.sqlite`) is never cloned. The
+redacted engineering snapshot lives in this repository on the branch
+`refs/heads/carryctx-snapshots`, one commit per publication. The commander's
+merge closeout publishes it with `just workflow-publish`; a fresh clone
+restores its local CarryCtx DB from that branch:
 
 ```sh
-just workflow-import-dry   # fetch + validate only
-just workflow-import       # replace-mode import of LATEST
+just workflow-import-dry   # fetch + validate the snapshot; no DB writes
+just workflow-import       # initialize CarryCtx state if needed, then import
 ```
 
-Snapshots are redacted publication artifacts and are never merged back.
+The import fetches `refs/heads/carryctx-snapshots`, refuses to replace a
+non-empty local DB without `--force` (`just workflow-import --force`), and
+prints provenance (snapshot commit + source). Snapshots are redacted
+publication artifacts produced by `carryctx export --publication`: CarryCtx
+refuses them as merge sources, so restore always uses replace mode, and a
+secret that leaked before rotation must still be rotated at the source.
 
 ## Provenance
 

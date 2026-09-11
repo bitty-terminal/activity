@@ -58,13 +58,13 @@ wider request requires an explicitly scoped task plus a reviewed privacy and
 security note. Never add high-risk capabilities, install scripts, secrets, or
 ambient authority as a side effect of an unrelated change.
 
-## Workflow mirror
+## Workflow snapshots
 
-The engineering workflow is mirrored to
-[activity-workflow](https://github.com/bitty-terminal/activity-workflow).
-Merges run `just workflow-publish` (dry run: `just workflow-publish-dry`) as
-part of the commander closeout; snapshots are redacted and never merged back.
-Fresh clones restore with `just workflow-import` (`just workflow-import-dry`).
+The engineering workflow snapshot lives in this repository on the branch
+`refs/heads/carryctx-snapshots`. Merges run `just workflow-publish` (dry run:
+`just workflow-publish-dry`) as part of the commander closeout; snapshots are
+redacted publication artifacts and are never merged back. Fresh clones restore
+with `just workflow-import` (`just workflow-import-dry`).
 
 ## Reporting
 
