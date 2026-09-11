@@ -123,6 +123,13 @@ intentionally absent.
 
 ## Workflow snapshot restore
 
+CarryCtx is the local-first tool that records this project's tasks, decisions,
+and checkpoints. Install it globally for local development (recommended):
+
+```sh
+cargo install carryctx      # Rust toolchain, or: npm i -g carryctx
+```
+
 CarryCtx runtime state (`.git/carryctx/state.sqlite`) is never cloned. The
 redacted engineering snapshot lives in this repository on the branch
 `refs/heads/carryctx-snapshots`, one commit per publication. The commander's

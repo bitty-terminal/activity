@@ -33,6 +33,9 @@
 
 - Use this repository's CarryCtx state for tasks, dependencies, scopes,
   sessions, progress, decisions, checkpoints, handoffs, and review.
+- Install the `carryctx` CLI globally for local development (recommended):
+  `cargo install carryctx` or `npm i -g carryctx`; the npm package is also
+  declared in `package.json` for discovery.
 - The commander coordinates. Delegate substantial scoped work to focused
   agents and require an independent reviewer for acceptance.
 - Every agent reads its persona and applicable rules, binds a named session to
