@@ -59,13 +59,14 @@ buckets fold into a bounded total instead of being retained.
 
 ## Development
 
-Prerequisites: `just` and `bun` (CI pins Bun 1.4.0; the justfile owns all
-tool pins and never invokes formatters or linters directly).
+Prerequisites: `just`, `bun`, and `lua5.4` for the behavior suite (CI pins
+Bun 1.4.0 and installs Lua 5.4; the justfile owns all tool pins and never
+invokes formatters or linters directly).
 
 ```sh
 bun install
 just hooks-install   # optional: lefthook commit-msg and pre-commit hooks
-just check           # lint + fmt-check + manifest + lua
+just check           # lint + fmt-check + manifest + lua + test
 ```
 
 Individual gates:
@@ -79,14 +80,10 @@ Individual gates:
   limits). The SDK CLI `bitty-plugin-lint` is authoritative once published;
   the transitional validator is a fail-closed subset of it.
 - `just lua` — parse the entry point with a pinned Lua parser.
-
-Additional behavior/conformance checks (see `tests/README.md`):
-
-```sh
-lua5.4 tests/run.lua
-bun tests/check-lua-luals.mjs
-BITTY_PLUGIN_LINT=/path/to/bitty-plugin-sdk/src/cli.ts bun tests/check-manifest-lint.mjs
-```
+- `just test` — Lua 5.4 behavior suite plus the LuaLS and SDK-linter
+  conformance wrappers; also available as `just test-lua`, `just test-luals`,
+  and `just test-manifest`. The wrappers skip with exit 0 when their optional
+  tool is not installed (see `tests/README.md`).
 
 ## Capabilities and privacy
 
