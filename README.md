@@ -10,24 +10,52 @@ repository under the `bitty-terminal` organization, scaffolded from
 and validated against
 [bitty-plugin-sdk](https://github.com/bitty-terminal/bitty-plugin-sdk).
 
-> Status: pre-implementation scaffold. The Bitty plugin host and the accepted
-> Plugin API v1 bindings are still landing. `just check` validates the manifest
-> and parses the Lua entry point; the v1 timeline behavior is tracked in this
-> repository's CarryCtx state as `CTX-0002`. Nothing here is a shipped
-> feature.
+> Status: v1 implementation present, host integration still landing. The Bitty
+> plugin host and the accepted Plugin API v1 bindings are still being built,
+> so nothing here is a shipped feature. The repository implements the v1
+> privacy-first timeline against the accepted surface and validates it with
+> `just check`, the behavior tests in `tests/`, LuaLS conformance, and
+> `bitty-plugin-lint`.
 
 ## Layout
 
-| Path                            | Purpose                                                                                                |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `bitty-plugin.toml`             | Static manifest: identity, compatibility, capability requests, and lazy triggers.                      |
-| `lua/activity/init.lua`         | Entry point evaluated once per activation; every resource it creates belongs to the plugin generation. |
-| `scripts/validate-manifest.mjs` | Transitional manifest check using the Bun TOML parser; no dependencies.                                |
-| `scripts/publish-ctxpack*.sh`   | CarryCtx snapshot publisher for the `activity-workflow` mirror.                                        |
-| `scripts/fetch-ctxpack*.sh`     | Fresh-clone restore from the `activity-workflow` mirror LATEST snapshot.                               |
-| `justfile`                      | Quality gates with pinned tool versions.                                                               |
-| `.github/workflows/ci.yml`      | CI quality gate with a read-only token and SHA-pinned actions.                                         |
-| `.github/workflows/codeql.yml`  | CodeQL analysis (`actions`, `javascript-typescript`).                                                  |
+| Path                            | Purpose                                                                                            |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `bitty-plugin.toml`             | Static manifest: identity, compatibility, capability requests, and lazy commands/events.           |
+| `lua/activity/init.lua`         | Entry point evaluated once per activation; registrations and event subscriptions.                  |
+| `lua/activity/aggregate.lua`    | Bounded aggregate state, retention, exit/duration bucketing, and summary rendering.                |
+| `lua/activity/redact.lua`       | cwd reduction to bounded, non-reconstructable labels (final path segment).                         |
+| `tests/`                        | Behavior tests, mock host stub, LuaLS conformance, and SDK linter wrapper (see `tests/README.md`). |
+| `scripts/validate-manifest.mjs` | Transitional manifest check using the Bun TOML parser; no dependencies.                            |
+| `scripts/publish-ctxpack*.sh`   | CarryCtx snapshot publisher for the `activity-workflow` mirror.                                    |
+| `scripts/fetch-ctxpack*.sh`     | Fresh-clone restore from the `activity-workflow` mirror LATEST snapshot.                           |
+| `justfile`                      | Quality gates with pinned tool versions.                                                           |
+| `.github/workflows/ci.yml`      | CI quality gate with a read-only token and SHA-pinned actions.                                     |
+| `.github/workflows/codeql.yml`  | CodeQL analysis (`actions`, `javascript-typescript`).                                              |
+
+## Behavior (v1)
+
+Two commands are registered during activation (both reserved in `[lazy]`):
+
+- `bitty-featured.activity:summary` — prunes the retention window, reads one
+  read-only semantic snapshot for the focused-terminal zone count, persists
+  pending aggregates, and returns a bounded text summary. It also shows one
+  local `platform.notify` notification.
+- `bitty-featured.activity:clear` — explicit user purge: deletes the stored
+  aggregate value and resets in-memory state.
+
+Observation events update aggregates; one bounded one-shot timer coalesces
+store writes, and the `plugin.suspended` / `plugin.disposed` lifecycle events
+flush pending state before the generation goes away. Durations pair
+`terminal.opened` and `terminal.closed` by `terminal_id` in generation-scoped
+memory (at most 64 tracked sessions; sessions opened before activation or
+beyond the cap record no duration); only the resulting bucket count is
+stored, never open times or per-terminal history. Stored buckets are
+capped, the value is a single JSON-compatible table under `timeline.v1`, and
+data written by a newer plugin format is never overwritten.
+
+Retention defaults to 7 days (`retention_days` setting, 1..90). Expired cwd
+buckets fold into a bounded total instead of being retained.
 
 ## Development
 
@@ -52,21 +80,48 @@ Individual gates:
   the transitional validator is a fail-closed subset of it.
 - `just lua` — parse the entry point with a pinned Lua parser.
 
+Additional behavior/conformance checks (see `tests/README.md`):
+
+```sh
+lua5.4 tests/run.lua
+bun tests/check-lua-luals.mjs
+BITTY_PLUGIN_LINT=/path/to/bitty-plugin-sdk/src/cli.ts bun tests/check-manifest-lint.mjs
+```
+
 ## Capabilities and privacy
 
 Capabilities are deny by default: a request absent from `[capabilities]` is
 denied, identifiers come from a closed set, and there is no allow-all entry.
 
-v1 intent requests the narrowest identifiers only:
+v1 requests the narrowest identifiers only:
 
-- `terminal.semantic-read` — read-only semantic snapshots used for local
-  aggregate counts, durations, and cwd.
-- `platform.notify` — surface the local summary.
+- `terminal.semantic-read` — one read-only semantic snapshot per `summary`
+  invocation (zone count and terminal identity only; rows are never read).
+- `platform.notify` — surface the local summary text.
 
-Command arguments are never stored (`store_command_args` defaults to `false`)
-and workspace settings cannot widen authority; high-risk identifiers
-(`terminal.raw-read`, `terminal.input.all`, `ui.protocol-register`,
-`debug.control`, `runtime.plugin-manage`) are intentionally absent.
+The plugin is local-observation only. It opens no socket, spawns no process,
+performs no filesystem access, reads no environment, requests no clipboard or
+terminal input, and has no install-time execution.
+
+Stored fields (one bounded `bitty.store` value under `timeline.v1`):
+
+- coarse epoch timestamps (`updated_at`, `first_seen`, `last_seen`);
+- session, cwd-event, exit-event, and exit-class counters;
+- duration buckets (`<1m`, `1-10m`, `10-60m`, `>60m`);
+- up to 32 redacted cwd labels (final path segment only, max 48 bytes each)
+  plus a bounded count for collapsed/expired buckets.
+
+Never stored: command arguments or command text, terminal rows or zone text,
+full paths, environment values, clipboard data, or any per-terminal history.
+`store_command_args` is read but never written by the plugin, defaults to
+`false`, and a `true` opt-in changes nothing in v1: arguments are not stored
+either way. Workspace settings cannot widen this.
+
+`bitty-featured.activity:clear` deletes the stored value on user request.
+Retention defaults to 7 days and expired buckets fold into a bounded total.
+High-risk identifiers (`terminal.raw-read`, `terminal.input.all`,
+`ui.protocol-register`, `debug.control`, `runtime.plugin-manage`) are
+intentionally absent.
 
 ## Workflow mirror
 
@@ -104,7 +159,7 @@ and the Plugin API v1 Lua Surface RFC, as generated in bitty-plugin-sdk
 ## Security
 
 Report vulnerabilities through the process in [SECURITY.md](SECURITY.md)
-rather than a public issue. This scaffold contains no credentials, no
+rather than a public issue. This plugin contains no credentials, no
 install-time execution, and no ambient OS authority.
 
 ## License

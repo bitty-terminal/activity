@@ -38,4 +38,18 @@ platform.notify = true
 [lazy]
 # Static triggers let the host register the plugin without creating a VM.
 # Commands are plugin-qualified: `<plugin-id>:<resource>`.
-commands = ["bitty-featured.activity:summary"]
+commands = [
+  "bitty-featured.activity:summary",
+  "bitty-featured.activity:clear",
+]
+# Event types the plugin subscribes to during activation. Observation events
+# drive the local aggregates; lifecycle events flush pending state before a
+# generation is suspended or disposed.
+events = [
+  "terminal.opened",
+  "terminal.closed",
+  "terminal.cwd-changed",
+  "process.exited",
+  "plugin.suspended",
+  "plugin.disposed",
+]
