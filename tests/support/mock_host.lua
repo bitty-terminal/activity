@@ -56,7 +56,13 @@ local function validate_value(value, depth, seen, budget)
     fail("validation", "E_STORE_VALUE_INVALID", "store value node count exceeds 1024")
   end
   local kind = type(value)
-  if kind == "boolean" or kind == "string" then
+  if kind == "string" then
+    if utf8.len(value) == nil then
+      fail("validation", "E_STORE_VALUE_INVALID", "store value must be valid UTF-8")
+    end
+    return
+  end
+  if kind == "boolean" then
     return
   end
   if kind == "number" then
@@ -76,6 +82,9 @@ local function validate_value(value, depth, seen, budget)
     local key_kind = type(key)
     if key_kind ~= "string" and key_kind ~= "number" then
       fail("validation", "E_STORE_VALUE_INVALID", "store table keys must be strings or numbers")
+    end
+    if key_kind == "string" and utf8.len(key) == nil then
+      fail("validation", "E_STORE_VALUE_INVALID", "store table keys must be valid UTF-8")
     end
     validate_value(child, depth + 1, seen, budget)
   end

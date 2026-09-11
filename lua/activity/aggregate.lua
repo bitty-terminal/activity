@@ -63,20 +63,8 @@ local function table_size(value)
   return size
 end
 
-local function truncate_bytes(value, limit)
-  if #value <= limit then
-    return value
-  end
-  local cut = limit
-  while cut > 0 do
-    local byte = string.byte(value, cut)
-    if byte < 128 or byte >= 192 then
-      break
-    end
-    cut = cut - 1
-  end
-  return string.sub(value, 1, cut)
-end
+-- UTF-8-safe, bounded truncation shared with the label transform.
+local truncate_utf8 = redact.truncate_utf8
 
 local function utc_timestamp(seconds)
   local ok, rendered = pcall(os.date, "!%Y-%m-%dT%H:%M:%SZ", seconds)
@@ -129,7 +117,14 @@ local function normalize_entries(raw_entries)
   for label, entry in pairs(raw_entries) do
     if type(label) == "string" and type(entry) == "table" then
       local safe_label = redact.redact(label)
-      if table_size(entries) < M.MAX_CWD_ENTRIES then
+      local target = entries[safe_label]
+      if target ~= nil then
+        target.count = target.count + count_or_zero(entry.count)
+        local last_seen = count_or_zero(entry.last_seen)
+        if last_seen > target.last_seen then
+          target.last_seen = last_seen
+        end
+      elseif table_size(entries) < M.MAX_CWD_ENTRIES then
         entries[safe_label] = {
           count = count_or_zero(entry.count),
           last_seen = count_or_zero(entry.last_seen),
@@ -440,8 +435,8 @@ function M.render(state, opts)
   else
     push(lines, "arguments: never stored (default)")
   end
-  local summary = truncate_bytes(table.concat(lines, "\n"), M.MAX_SUMMARY_BYTES)
-  local notify_body = truncate_bytes(
+  local summary = truncate_utf8(table.concat(lines, "\n"), M.MAX_SUMMARY_BYTES)
+  local notify_body = truncate_utf8(
     string.format(
       "%d session(s), %d cwd event(s), %d exit(s); top dirs stored locally only",
       state.counters.terminals_opened,

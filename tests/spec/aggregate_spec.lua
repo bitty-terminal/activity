@@ -71,6 +71,30 @@ function M.run(context)
   tap.equal(corrupt.version, aggregate.FORMAT_VERSION, "corrupt value resets format")
   tap.equal(corrupt.counters.cwd_events, 0, "corrupt value resets counters")
 
+  local collision = aggregate.normalize({
+    version = aggregate.FORMAT_VERSION,
+    cwd = {
+      entries = {
+        ["é"] = { count = 2, last_seen = 5 },
+        ["/x/é"] = { count = 3, last_seen = 7 },
+      },
+    },
+  }, 10, 7)
+  tap.equal(collision.cwd.entries["é"].count, 5, "redaction collisions merge counts")
+  tap.equal(collision.cwd.entries["é"].last_seen, 7, "redaction collisions keep the latest seen")
+
+  local wide = aggregate.new_state(1, 7)
+  for index = 1, 5 do
+    aggregate.on_cwd_changed(
+      wide,
+      string.format("/p/%s%d", string.rep("é", 24), index),
+      100
+    )
+  end
+  local wide_summary = aggregate.render(wide, { now = 100 })
+  tap.ok(utf8.len(wide_summary) ~= nil, "summary with multibyte labels is valid UTF-8")
+  tap.le(#wide_summary, aggregate.MAX_SUMMARY_BYTES, "summary stays bounded with multibyte labels")
+
   local store = new_store()
   store.data[aggregate.STORE_KEY] = { version = aggregate.FORMAT_VERSION + 1 }
   local newer = aggregate.load(store, 10, 7)

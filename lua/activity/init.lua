@@ -25,6 +25,7 @@ local aggregate = require("activity.aggregate")
 local M = {}
 
 local FLUSH_DELAY_MS = 5000
+local MAX_TRACKED_SESSIONS = 64
 
 local function now_seconds()
   local ok, value = pcall(os.time)
@@ -105,6 +106,41 @@ local function schedule_flush()
   end
 end
 
+-- Bounded open/close pairing for session durations. Open times live only in
+-- generation-scoped memory; they are never persisted. At most
+-- MAX_TRACKED_SESSIONS terminals are paired, and an unpaired close records
+-- nothing. Only the resulting duration bucket reaches `bitty.store`.
+local open_sessions = {}
+local open_session_count = 0
+
+local function track_session_open(terminal_id, timestamp)
+  if type(terminal_id) ~= "number" then
+    return
+  end
+  if open_sessions[terminal_id] ~= nil then
+    open_sessions[terminal_id] = timestamp
+    return
+  end
+  if open_session_count >= MAX_TRACKED_SESSIONS then
+    return
+  end
+  open_sessions[terminal_id] = timestamp
+  open_session_count = open_session_count + 1
+end
+
+local function track_session_close(terminal_id, timestamp)
+  if type(terminal_id) ~= "number" then
+    return
+  end
+  local opened_at = open_sessions[terminal_id]
+  if opened_at == nil then
+    return
+  end
+  open_sessions[terminal_id] = nil
+  open_session_count = open_session_count - 1
+  aggregate.on_session_duration(state, timestamp - opened_at, timestamp)
+end
+
 bitty.commands.register({
   id = "summary",
   title = "Activity: show summary",
@@ -156,13 +192,21 @@ bitty.commands.register({
   end,
 })
 
-bitty.events.subscribe("terminal.opened", function(_event)
-  aggregate.on_terminal_opened(state, now_seconds())
+bitty.events.subscribe("terminal.opened", function(event)
+  local payload = event.payload
+  ---@cast payload BittyTerminalOpenedPayload
+  local timestamp = now_seconds()
+  aggregate.on_terminal_opened(state, timestamp)
+  track_session_open(payload.terminal_id, timestamp)
   schedule_flush()
 end)
 
-bitty.events.subscribe("terminal.closed", function(_event)
-  aggregate.on_terminal_closed(state, now_seconds())
+bitty.events.subscribe("terminal.closed", function(event)
+  local payload = event.payload
+  ---@cast payload BittyTerminalClosedPayload
+  local timestamp = now_seconds()
+  aggregate.on_terminal_closed(state, timestamp)
+  track_session_close(payload.terminal_id, timestamp)
   schedule_flush()
 end)
 

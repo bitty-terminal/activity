@@ -92,6 +92,63 @@ function M.run(context)
   tap.equal(suspend_host:pending_timers(), 0, "suspend cancels the pending timer")
   tap.ok(suspend_host.store_data["timeline.v1"] ~= nil, "suspend flushes pending state")
 
+  local fake_now = 1700000000
+  local real_time = os.time
+  os.time = function()
+    return fake_now
+  end
+  local duration_host = new_host()
+  load_plugin(duration_host)
+  duration_host:publish("terminal.opened", { terminal_id = 1 })
+  fake_now = fake_now + 90
+  duration_host:publish("terminal.closed", { terminal_id = 1 })
+  duration_host:publish("terminal.opened", { terminal_id = 2 })
+  fake_now = fake_now + 700
+  duration_host:publish("terminal.closed", { terminal_id = 2 })
+  duration_host:publish("terminal.opened", { terminal_id = 3 })
+  fake_now = fake_now + 4000
+  duration_host:publish("terminal.closed", { terminal_id = 3 })
+  duration_host:publish("terminal.closed", { terminal_id = 99 })
+  duration_host:publish("terminal.opened", { terminal_id = 4 })
+  duration_host:advance(5000)
+  os.time = real_time
+  local duration_payload = duration_host.store_data["timeline.v1"]
+  tap.equal(duration_payload.durations.lt1m, 0, "sub-minute sessions are not recorded")
+  tap.equal(duration_payload.durations.m1_10, 1, "1-10m session bucket recorded")
+  tap.equal(duration_payload.durations.m10_60, 1, "10-60m session bucket recorded")
+  tap.equal(duration_payload.durations.gt60, 1, ">60m session bucket recorded")
+  tap.equal(duration_payload.counters.terminals_opened, 4, "opens still counted")
+  tap.equal(duration_payload.counters.terminals_closed, 4, "closes still counted")
+
+  local cap_now = 1700000000
+  local real_time_cap = os.time
+  os.time = function()
+    return cap_now
+  end
+  local cap_host = new_host()
+  load_plugin(cap_host)
+  for id = 1, 70 do
+    cap_host:publish("terminal.opened", { terminal_id = id })
+  end
+  cap_now = cap_now + 61
+  for id = 1, 70 do
+    cap_host:publish("terminal.closed", { terminal_id = id })
+  end
+  cap_host:advance(5000)
+  os.time = real_time_cap
+  local cap_payload = cap_host.store_data["timeline.v1"]
+  tap.equal(cap_payload.durations.m1_10, 64, "duration pairing is bounded to 64 sessions")
+  tap.equal(cap_payload.counters.terminals_opened, 70, "over-cap opens are still counted")
+
+  local utf8_host = new_host()
+  local utf8_ok, utf8_err = pcall(function()
+    utf8_host.bitty.store.set("timeline.v1", { bad = string.char(0xFF) })
+  end)
+  tap.equal(utf8_ok, false, "mock store rejects invalid UTF-8 values")
+  if not utf8_ok then
+    tap.equal(utf8_err.code, "E_STORE_VALUE_INVALID", "UTF-8 rejection uses the stable code")
+  end
+
   local command_host = new_host()
   load_plugin(command_host)
   command_host:publish("terminal.opened", {})

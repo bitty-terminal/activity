@@ -46,7 +46,11 @@ Two commands are registered during activation (both reserved in `[lazy]`):
 
 Observation events update aggregates; one bounded one-shot timer coalesces
 store writes, and the `plugin.suspended` / `plugin.disposed` lifecycle events
-flush pending state before the generation goes away. Stored buckets are
+flush pending state before the generation goes away. Durations pair
+`terminal.opened` and `terminal.closed` by `terminal_id` in generation-scoped
+memory (at most 64 tracked sessions; sessions opened before activation or
+beyond the cap record no duration); only the resulting bucket count is
+stored, never open times or per-terminal history. Stored buckets are
 capped, the value is a single JSON-compatible table under `timeline.v1`, and
 data written by a newer plugin format is never overwritten.
 

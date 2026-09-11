@@ -28,18 +28,18 @@ BITTY_PLUGIN_LINT=/path/to/bitty-plugin-sdk/src/cli.ts bun tests/check-manifest-
 
 ## Layout
 
-| Path                            | Purpose                                                                                         |
-| ------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `run.lua`                       | Plain-Lua runner; exits non-zero on assertion failure.                                          |
-| `support/tap.lua`               | Assertion helper (no external test framework).                                                  |
-| `support/mock_host.lua`         | Fail-closed in-process `bitty` stub modeling the used v1 subset.                                |
-| `spec/redact_spec.lua`          | cwd label transform unit tests.                                                                 |
-| `spec/aggregate_spec.lua`       | State, bounds, retention, persistence, and rendering unit tests.                                |
-| `spec/init_spec.lua`            | Entry-point behavior against the mock host.                                                     |
-| `lua-defs/bitty.d.lua`          | Vendored LuaLS definitions from bitty-plugin-sdk (origin/main `721aea8`, sha256 `7101cc56...`). |
-| `lua-defs/negative-fixture.lua` | Excluded-surface fixture that LuaLS must reject.                                                |
-| `check-lua-luals.mjs`           | Positive/negative LuaLS workspace check.                                                        |
-| `check-manifest-lint.mjs`       | Runs `bitty-plugin-lint` when discoverable.                                                     |
+| Path                            | Purpose                                                                                                           |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `run.lua`                       | Plain-Lua runner; exits non-zero on assertion failure.                                                            |
+| `support/tap.lua`               | Assertion helper (no external test framework).                                                                    |
+| `support/mock_host.lua`         | Fail-closed in-process `bitty` stub modeling the used v1 subset (capability gates, key/value bounds incl. UTF-8). |
+| `spec/redact_spec.lua`          | cwd label transform unit tests.                                                                                   |
+| `spec/aggregate_spec.lua`       | State, bounds, retention, persistence, and rendering unit tests.                                                  |
+| `spec/init_spec.lua`            | Entry-point behavior against the mock host.                                                                       |
+| `lua-defs/bitty.d.lua`          | Vendored LuaLS definitions from bitty-plugin-sdk (origin/main `721aea8`, sha256 `7101cc56...`).                   |
+| `lua-defs/negative-fixture.lua` | Excluded-surface fixture that LuaLS must reject.                                                                  |
+| `check-lua-luals.mjs`           | Positive/negative LuaLS workspace check.                                                                          |
+| `check-manifest-lint.mjs`       | Runs `bitty-plugin-lint` when discoverable.                                                                       |
 
 ## Known gaps
 

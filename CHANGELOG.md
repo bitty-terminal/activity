@@ -16,9 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Observation subscriptions for `terminal.opened`, `terminal.closed`,
     `terminal.cwd-changed`, and `process.exited`; lifecycle subscriptions
     flush pending state on `plugin.suspended` / `plugin.disposed`.
-  - Bounded single-value store (`timeline.v1`): counters, duration and
-    exit-class buckets, up to 32 redacted cwd labels, and a 7-day default
-    retention window that folds expired buckets into a bounded total.
+  - Bounded single-value store (`timeline.v1`): counters, duration buckets
+    from bounded `terminal.opened`/`terminal.closed` pairing (at most 64
+    tracked sessions; open times are never persisted), exit-class buckets, up
+    to 32 redacted cwd labels, and a 7-day default retention window that
+    folds expired buckets into a bounded total.
+  - Labels are always valid UTF-8 and truncated only on a character
+    boundary; invalid input sequences are masked before storage.
   - Coalesced store writes behind one bounded one-shot timer; newer-format
     stored data is detected and never overwritten.
 - Behavior and conformance tests (`tests/`): plain-Lua runner with a
