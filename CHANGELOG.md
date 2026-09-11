@@ -32,8 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repository bootstrap at governance parity with sibling repositories:
   LICENSE (MIT), README, CONTRIBUTING, SECURITY, CHANGELOG, commitlint and
   lefthook configuration, Markdown lint configuration, CI and CodeQL
-  workflows, Dependabot configuration, issue/PR templates, and the
-  `activity-workflow` ctxpack mirror publisher/restore scripts.
+  workflows, Dependabot configuration, issue/PR templates, and the in-repo
+  CarryCtx snapshot publisher/restore scripts (`scripts/workflow-*.sh`).
 - Plugin scaffold generated from `bitty-plugin-template` (R-TPL-1,
   origin/main `494c743`): `bitty-plugin.toml` for `bitty-featured.activity`
   and the `lua/activity/init.lua` entry point using the accepted Plugin API
