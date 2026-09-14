@@ -1,13 +1,13 @@
 {
   "format": "carryctx-pack-dir",
   "format_version": 2,
-  "carryctx_version": "0.11.3",
+  "carryctx_version": "0.11.4",
   "schema_version": 18,
   "project_id": "01M26YF393Y6WZY227PVJ48W0S",
-  "export_id": "01M28KD7XYFDANGEA64AGVVBC6",
-  "created_at": "2026-09-11T16:04:31.294039374+00:00",
+  "export_id": "01M2FEZFQDPVY8PJHT4X8PG5FM",
+  "created_at": "2026-09-14T08:01:47.245324975+00:00",
   "parents": [
-    "01M28E3KFDW921PBRSPYNANPVF"
+    "01M28KD7XYFDANGEA64AGVVBC6"
   ],
   "sequences": {
     "display_id_CTX": 6,
@@ -23,7 +23,7 @@
     "checkpoint_corrections": 0,
     "checkpoints": 8,
     "decisions": 0,
-    "events": 104,
+    "events": 105,
     "graph_edges": 0,
     "graph_nodes": 0,
     "handoffs": 3,
