@@ -89,7 +89,7 @@ check: lint fmt-check manifest lua test
 # local ref advanced (native carryctx commits one snapshot per export, so a
 # re-run publishes again rather than no-opping). Canonical closeout runs from
 # the primary checkout on branch main
-# (`cd "$BITTY_WORKSPACE/bitty-plugins/activity" && just workflow-publish`); a
+# (`cd "$BITTY_WORKSPACE/activity" && just workflow-publish`); a
 # detached or feature worktree records that branch as the snapshot source. Dry
 # run validates the export and writes neither the ref nor the remote.
 workflow-publish *args:
