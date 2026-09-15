@@ -62,16 +62,28 @@ Two commands are registered during activation (both reserved in `[lazy]`):
 
 Observation events update aggregates; one bounded one-shot timer coalesces
 store writes, and the `plugin.suspended` / `plugin.disposed` lifecycle events
-flush pending state before the generation goes away. Durations pair
-`terminal.opened` and `terminal.closed` by `terminal_id` in generation-scoped
-memory (at most 64 tracked sessions; sessions opened before activation or
-beyond the cap record no duration); only the resulting bucket count is
-stored, never open times or per-terminal history. Stored buckets are
-capped, the value is a single JSON-compatible table under `timeline.v1`, and
-data written by a newer plugin format is never overwritten.
+flush pending state before the generation goes away. A failed transient write
+re-arms a bounded exponential-backoff retry (at most five automatic attempts
+per dirty streak, reset by the next observation event), so pending aggregates
+are not lost between events; the consecutive-failure counter resets after a
+successful write. Payload fields are type-checked and events fail closed: a
+malformed `terminal_id`, `exit_code`, or `cwd` never mutates an aggregate or
+arms a flush.
 
-Retention defaults to 7 days (`retention_days` setting, 1..90). Expired cwd
-buckets fold into a bounded total instead of being retained.
+Durations pair `terminal.opened` and `terminal.closed` by `terminal_id` in
+generation-scoped memory (at most 64 tracked sessions). Abandoned opens are
+pruned after 24 hours, and at the cap the least-recently-opened entry is
+evicted, so new sessions are never permanently starved; a close older than the
+abandonment bound records no duration. Sessions opened before activation record
+no duration. Only the resulting bucket count is stored, never open times or
+per-terminal history. Stored buckets are capped, the value is a single
+JSON-compatible table under `timeline.v1`, and data written by a newer plugin
+format is never overwritten.
+
+Retention defaults to 7 days (`retention_days` setting, 1..90). The current
+setting takes precedence over the value stored in `timeline.v1`, which is used
+only as a fallback when no setting value is available; expired cwd buckets fold
+into a bounded total instead of being retained.
 
 ## Development
 
@@ -131,7 +143,9 @@ full paths, environment values, clipboard data, or any per-terminal history.
 either way. Workspace settings cannot widen this.
 
 `bitty-featured.activity:clear` deletes the stored value on user request.
-Retention defaults to 7 days and expired buckets fold into a bounded total.
+Retention defaults to 7 days; the current `retention_days` setting takes
+precedence over the stored window, and expired buckets fold into a bounded
+total. Malformed event payloads are ignored rather than counted.
 High-risk identifiers (`terminal.raw-read`, `terminal.input.all`,
 `ui.protocol-register`, `debug.control`, `runtime.plugin-manage`) are
 intentionally absent.

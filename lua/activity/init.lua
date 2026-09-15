@@ -26,6 +26,22 @@ local M = {}
 
 local FLUSH_DELAY_MS = 5000
 local MAX_TRACKED_SESSIONS = 64
+-- A failed store write is retried automatically with exponential backoff; the
+-- attempt budget is bounded per dirty streak so a persistent store outage
+-- cannot spin timers forever. A later observation event grants a fresh budget.
+local MAX_WRITE_RETRIES = 5
+local MAX_WRITE_BACKOFF_MS = 80000
+-- An unpaired `terminal.opened` older than this is treated as abandoned and is
+-- dropped instead of waiting forever for a `terminal.closed` that may never
+-- arrive. The bound keeps the pairing table from growing without limit.
+local SESSION_MAX_AGE_SECONDS = 24 * 60 * 60
+
+local function is_finite_number(value)
+  return type(value) == "number"
+    and value == value
+    and value ~= math.huge
+    and value ~= -math.huge
+end
 
 local function now_seconds()
   local ok, value = pcall(os.time)
@@ -64,16 +80,64 @@ local state = aggregate.load(bitty.store, now_seconds(), retention_days)
 local pending_flush = nil
 local dirty = false
 local write_errors = 0
+local flush_attempts = 0
+local flushing_sync = false
 
-local function write_state()
+local function retry_delay(attempt)
+  local exponent = attempt - 1
+  if exponent < 0 then
+    exponent = 0
+  end
+  local delay = FLUSH_DELAY_MS * (2 ^ exponent)
+  if delay > MAX_WRITE_BACKOFF_MS then
+    delay = MAX_WRITE_BACKOFF_MS
+  end
+  return delay
+end
+
+local write_state
+
+-- Arm one bounded flush timer. If the timer budget is exhausted, write
+-- synchronously instead of leaving aggregates in memory indefinitely; the
+-- synchronous path never re-arms, which would recurse while the store fails.
+local function arm_flush(delay_ms)
+  if pending_flush ~= nil or flushing_sync then
+    return
+  end
+  local ok, handle = pcall(bitty.timers.create, delay_ms, function()
+    pending_flush = nil
+    write_state()
+  end)
+  if ok and type(handle) == "number" then
+    pending_flush = handle
+    return
+  end
+  flushing_sync = true
+  write_state()
+  flushing_sync = false
+end
+
+write_state = function()
   if not dirty then
     return
   end
-  local ok = aggregate.save(bitty.store, state)
+  local ok, code = aggregate.save(bitty.store, state)
   if ok then
+    -- A successful write clears the dirty flag and resets the consecutive
+    -- failure counter so transient errors are not reported forever.
     dirty = false
-  else
-    write_errors = write_errors + 1
+    write_errors = 0
+    flush_attempts = 0
+    return
+  end
+  write_errors = write_errors + 1
+  -- Newer-format data is never overwritten, so retrying cannot succeed.
+  if code == "E_STORE_VERSION" then
+    return
+  end
+  flush_attempts = flush_attempts + 1
+  if flush_attempts <= MAX_WRITE_RETRIES then
+    arm_flush(retry_delay(flush_attempts))
   end
 end
 
@@ -86,50 +150,84 @@ local function flush_now()
 end
 
 -- Coalesce store writes: events mark the state dirty and one bounded one-shot
--- timer flushes it. Lifecycle handlers flush immediately so suspension or
--- disposal never drops pending aggregates.
+-- timer flushes it; a failed write re-arms a bounded backoff retry so
+-- aggregates are not lost between external events. Lifecycle handlers flush
+-- immediately so suspension or disposal never drops pending aggregates.
 local function schedule_flush()
   dirty = true
+  flush_attempts = 0
   if pending_flush ~= nil then
     return
   end
-  local ok, handle = pcall(bitty.timers.create, FLUSH_DELAY_MS, function()
-    pending_flush = nil
-    write_state()
-  end)
-  if ok and type(handle) == "number" then
-    pending_flush = handle
-  else
-    -- Timer budget exhausted or unavailable: write synchronously instead of
-    -- leaving aggregates in memory indefinitely.
-    write_state()
-  end
+  arm_flush(FLUSH_DELAY_MS)
 end
 
 -- Bounded open/close pairing for session durations. Open times live only in
--- generation-scoped memory; they are never persisted. At most
--- MAX_TRACKED_SESSIONS terminals are paired, and an unpaired close records
--- nothing. Only the resulting duration bucket reaches `bitty.store`.
+-- generation-scoped memory; they are never persisted. Entries are bounded by
+-- MAX_TRACKED_SESSIONS: abandoned opens are pruned by age and, when the table
+-- is still full, the least-recently-opened entry is evicted so new sessions
+-- are never permanently starved. An unpaired close records nothing. Only the
+-- resulting duration bucket reaches `bitty.store`.
 local open_sessions = {}
 local open_session_count = 0
 
+-- Drop abandoned entries older than SESSION_MAX_AGE_SECONDS. A non-positive
+-- timestamp (clock unavailable) disables age pruning rather than dropping
+-- live data. Returns the number of entries dropped.
+local function prune_open_sessions(timestamp)
+  if not is_finite_number(timestamp) or timestamp <= 0 then
+    return 0
+  end
+  local dropped = 0
+  for terminal_id, opened_at in pairs(open_sessions) do
+    if is_finite_number(opened_at) and timestamp - opened_at > SESSION_MAX_AGE_SECONDS then
+      open_sessions[terminal_id] = nil
+      dropped = dropped + 1
+    end
+  end
+  open_session_count = open_session_count - dropped
+  return dropped
+end
+
+-- Evict the least-recently-opened entry when the table is at capacity.
+local function evict_oldest_session()
+  local oldest_id = nil
+  local oldest_at = nil
+  for terminal_id, opened_at in pairs(open_sessions) do
+    if oldest_at == nil or opened_at < oldest_at then
+      oldest_at = opened_at
+      oldest_id = terminal_id
+    end
+  end
+  if oldest_id ~= nil then
+    open_sessions[oldest_id] = nil
+    open_session_count = open_session_count - 1
+  end
+end
+
 local function track_session_open(terminal_id, timestamp)
-  if type(terminal_id) ~= "number" then
+  if not is_finite_number(terminal_id) then
     return
   end
   if open_sessions[terminal_id] ~= nil then
     open_sessions[terminal_id] = timestamp
     return
   end
+  prune_open_sessions(timestamp)
   if open_session_count >= MAX_TRACKED_SESSIONS then
-    return
+    evict_oldest_session()
+    if open_session_count >= MAX_TRACKED_SESSIONS then
+      -- Nothing was evictable (unreachable with a consistent count): fail
+      -- closed rather than exceed the bound.
+      return
+    end
   end
   open_sessions[terminal_id] = timestamp
   open_session_count = open_session_count + 1
 end
 
 local function track_session_close(terminal_id, timestamp)
-  if type(terminal_id) ~= "number" then
+  if not is_finite_number(terminal_id) then
     return
   end
   local opened_at = open_sessions[terminal_id]
@@ -138,6 +236,10 @@ local function track_session_close(terminal_id, timestamp)
   end
   open_sessions[terminal_id] = nil
   open_session_count = open_session_count - 1
+  if is_finite_number(opened_at) and timestamp - opened_at > SESSION_MAX_AGE_SECONDS then
+    -- The pairing exceeded the abandonment bound; record no duration.
+    return
+  end
   aggregate.on_session_duration(state, timestamp - opened_at, timestamp)
 end
 
@@ -149,8 +251,12 @@ bitty.commands.register({
   result_schema = { type = "string" },
   run = function(_args)
     local timestamp = now_seconds()
-    aggregate.prune(state, timestamp)
-    dirty = true
+    local _, pruned = aggregate.prune(state, timestamp)
+    if pruned then
+      -- Only persist when pruning actually dropped a bucket; a no-op summary
+      -- must not rewrite the store.
+      dirty = true
+    end
     local zones = nil
     local ok, snapshot = pcall(bitty.terminal.snapshot, { scope = "semantic" })
     if ok and type(snapshot) == "table" and type(snapshot.zones) == "table" then
@@ -192,11 +298,17 @@ bitty.commands.register({
   end,
 })
 
+-- Observation subscriptions validate the fields they consume and fail closed:
+-- a malformed payload returns before touching any aggregate, so a bad event
+-- can never drift counters, durations, or cwd buckets.
 bitty.events.subscribe("terminal.opened", function(event)
   local payload = event.payload
   ---@cast payload BittyTerminalOpenedPayload
+  if type(payload) ~= "table" or not is_finite_number(payload.terminal_id) then
+    return
+  end
   local timestamp = now_seconds()
-  aggregate.on_terminal_opened(state, timestamp)
+  aggregate.on_terminal_opened(state, payload.terminal_id, timestamp)
   track_session_open(payload.terminal_id, timestamp)
   schedule_flush()
 end)
@@ -204,8 +316,11 @@ end)
 bitty.events.subscribe("terminal.closed", function(event)
   local payload = event.payload
   ---@cast payload BittyTerminalClosedPayload
+  if type(payload) ~= "table" or not is_finite_number(payload.terminal_id) then
+    return
+  end
   local timestamp = now_seconds()
-  aggregate.on_terminal_closed(state, timestamp)
+  aggregate.on_terminal_closed(state, payload.terminal_id, timestamp)
   track_session_close(payload.terminal_id, timestamp)
   schedule_flush()
 end)
@@ -213,6 +328,9 @@ end)
 bitty.events.subscribe("terminal.cwd-changed", function(event)
   local payload = event.payload
   ---@cast payload BittyTerminalCwdChangedPayload
+  if type(payload) ~= "table" or type(payload.cwd) ~= "string" then
+    return
+  end
   aggregate.on_cwd_changed(state, payload.cwd, now_seconds())
   schedule_flush()
 end)
@@ -220,6 +338,9 @@ end)
 bitty.events.subscribe("process.exited", function(event)
   local payload = event.payload
   ---@cast payload BittyProcessExitedPayload
+  if type(payload) ~= "table" or not is_finite_number(payload.exit_code) then
+    return
+  end
   aggregate.on_process_exited(state, payload.exit_code, now_seconds())
   schedule_flush()
 end)
