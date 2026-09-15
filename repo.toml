@@ -1,0 +1,13 @@
+# activity: workspace identity descriptor (kind/lang/role mirror workspace.toml).
+[repo]
+name = "activity"
+kind = "plugin"
+lang = "lua/ts"
+role = "independent plugin: activity tracking"
+owner = "TBD"
+# In-repo refs cite bitty-docs only; revisit after the OQ-053 docs split lands.
+docs = "bitty-docs"
+
+[contracts.consumes]
+manifest-v1 = "OQ-012 plugin-platform-rfc" # bitty-plugin.toml header
+plugin-api-v1 = "ADR-0009 Lua Surface" # capabilities must match manifest
