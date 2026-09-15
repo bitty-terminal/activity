@@ -1,8 +1,4 @@
-# Local CarryCtx overrides (runtime state lives in .git/carryctx/).
 .carryctx/config.local.toml
-
-# Scratch, dependencies, and isolated worktrees.
+.worktrees/
 node_modules/
 recording/
-tmp/
-.worktrees/
