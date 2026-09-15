@@ -8,7 +8,7 @@
   only; neither owns this repository's Git or CarryCtx state.
 - Enter this repository before running Git, CarryCtx, validation, or toolchain
   commands.
-- `bitty-docs` is the canonical source for plugin architecture, API, security,
+- [bitty-docs](https://github.com/bitty-terminal/bitty-docs) is the canonical source for plugin architecture, API, security,
   packaging, compatibility, and public-behavior contracts. This repository
   must not invent capabilities, lifecycle semantics, or release policy.
 - The project is pre-implementation. Repository existence, a manifest, or a
@@ -18,7 +18,7 @@
 
 - Plugin id: `bitty-featured.activity` (manifest `plugin.id`), repository
   `activity`, Lua module `lua/activity/`.
-- Purpose (v1 intent, bitty `CTX-0221` / `PX-1199`): a privacy-first local
+- Purpose (v1 intent, [bitty](https://github.com/bitty-terminal/bitty) `CTX-0221` / `PX-1199`): a privacy-first local
   activity timeline built from semantic terminal snapshots; counts, durations,
   and cwd aggregates; command arguments are never stored.
 - Authority boundary: only `terminal.semantic-read` and `platform.notify` are
@@ -33,9 +33,7 @@
 
 - Use this repository's CarryCtx state for tasks, dependencies, scopes,
   sessions, progress, decisions, checkpoints, handoffs, and review.
-- Install the `carryctx` CLI globally for local development (recommended):
-  `cargo install carryctx` or `npm i -g carryctx`; the npm package is also
-  declared in `package.json` for discovery.
+- Install the `carryctx` CLI globally for local development (recommended).
 - The commander coordinates. Delegate substantial scoped work to focused
   agents and require an independent reviewer for acceptance.
 - Every agent reads its persona and applicable rules, binds a named session to
@@ -77,9 +75,7 @@ Task: CTX-XXXX` and PRs add `Closes #<issue>`.
 
 ## Toolchain policy
 
-- Never use `npm`, `npx`, or `yarn` in this repository. JavaScript execution
-  and package management use `bun` / `bunx --bun` exclusively (Bun 1.4.0 in
-  CI unless a reviewed task pins otherwise).
+- JavaScript runs on `bun` (pinned version in the justfile).
 - Never invoke formatters or linters directly by name. Run quality gates only
   via the justfile: `just check` plus `just lint`, `just fmt-check`,
   `just manifest`, `just lua`.
@@ -106,12 +102,9 @@ Task: CTX-XXXX` and PRs add `Closes #<issue>`.
 - English is the only canonical documentation language.
 - Separate accepted requirements, candidates, open questions, implemented
   facts, and verification evidence.
-- Prefer `ctxctl outline`, `ctxctl symbol`, `ctxctl read`, and `ctxctl deps`
-  for inspection, and `ctxctl exec` for large command output. Use `rg` for
-  discovery.
-- Use the workspace `recording/` directory for durable scratch material
-  instead of `/tmp`. Prefer moving obsolete material into a scoped `.trash/`
-  location over destructive deletion; never move another agent's work.
+- Prefer narrow reads for inspection: read specific sections or line ranges
+  and keep context small. Use `rg` for discovery.
+- Ephemeral scratch goes under `/tmp/bitty/`; durable material goes under repo-local `recording/` (gitignored). Never move another agent's work.
 - The primary host is CachyOS with Hyprland and Ghostty. Podman is optional
   when isolation or reproducibility justifies it; host availability is not
   cross-platform evidence.
