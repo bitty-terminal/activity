@@ -53,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `snapshot-source` workflow also runs on a daily schedule and on manual
   dispatch, so a missed snapshot publication is caught even when `main` is
   idle (`CTX-0005`).
+- Plugin version realigned from `0.1.0` to `0.0.1` per bitty-docs decision
+  DIR-019 (everything pre-1.0-stable stays on the `0.0.x` line). Pre-release
+  correction only: no tags or releases were ever published, so no published
+  artifacts are affected (`CTX-0007`).
 
 ### Security
 

@@ -12,7 +12,7 @@
 [plugin]
 id = "bitty-featured.activity"
 name = "Bitty Activity"
-version = "0.1.0"
+version = "0.0.1"
 description = "Privacy-first local activity timeline plugin for the Bitty terminal."
 license = "MIT"
 
