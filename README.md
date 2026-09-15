@@ -173,7 +173,7 @@ generator:
 bun scripts/generate-plugin.mjs \
   --id bitty-featured.activity --name "Bitty Activity" \
   --description "Privacy-first local activity timeline plugin for the Bitty terminal." \
-  --version 0.1.0 --dir <target>
+  --version 0.0.1 --dir <target>
 ```
 
 The plugin id `bitty-featured.activity` follows the `PX-1199` batch plan.
