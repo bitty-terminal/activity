@@ -48,6 +48,50 @@ function M.run(context)
   tap.equal(aggregate.duration_bucket(3600), "gt60", "duration 1h")
   tap.equal(aggregate.duration_bucket(-1), nil, "negative duration is rejected")
 
+  -- R22: aggregate handlers fail closed on malformed values and never mutate.
+  local guarded = aggregate.new_state(1000, 7)
+  aggregate.on_terminal_opened(guarded, "1", 1000)
+  aggregate.on_terminal_opened(guarded, 0 / 0, 1000)
+  aggregate.on_terminal_opened(guarded, nil, 1000)
+  aggregate.on_terminal_closed(guarded, {}, 1000)
+  aggregate.on_terminal_closed(guarded, false, 1000)
+  aggregate.on_cwd_changed(guarded, 42, 1000)
+  aggregate.on_cwd_changed(guarded, nil, 1000)
+  aggregate.on_cwd_changed(guarded, {}, 1000)
+  aggregate.on_process_exited(guarded, "0", 1000)
+  aggregate.on_process_exited(guarded, 0 / 0, 1000)
+  aggregate.on_process_exited(guarded, nil, 1000)
+  tap.equal(guarded.counters.terminals_opened, 0, "malformed opens do not count")
+  tap.equal(guarded.counters.terminals_closed, 0, "malformed closes do not count")
+  tap.equal(guarded.counters.cwd_events, 0, "malformed cwd events do not count")
+  tap.equal(guarded.counters.exit_events, 0, "malformed exit events do not count")
+  tap.equal(guarded.counters.exits_unknown, 0, "malformed exits never fall into the unknown bucket")
+  tap.equal(next(guarded.cwd.entries), nil, "malformed cwd events create no bucket")
+
+  -- R23: an explicit retention setting overrides the stored value; the stored
+  -- value is the fallback only when no setting is supplied.
+  local precedence = aggregate.normalize({
+    version = aggregate.FORMAT_VERSION,
+    retention_days = 30,
+    cwd = { entries = {}, unlisted = 0 },
+  }, 10, 2)
+  tap.equal(precedence.retention_days, 2, "explicit retention overrides stored retention")
+  local fallback = aggregate.normalize({
+    version = aggregate.FORMAT_VERSION,
+    retention_days = 30,
+    cwd = { entries = {}, unlisted = 0 },
+  }, 10, nil)
+  tap.equal(fallback.retention_days, 30, "stored retention is the fallback when no setting is supplied")
+
+  -- R23: prune reports whether it changed anything so callers can skip a no-op
+  -- dirty mark.
+  local no_change = aggregate.new_state(1000, 7)
+  local _, changed = aggregate.prune(no_change, 1000)
+  tap.equal(changed, false, "prune reports no change on an empty window")
+  aggregate.on_cwd_changed(no_change, "/p/old", 1000)
+  local _, changed_after = aggregate.prune(no_change, 1000 + 8 * 86400)
+  tap.equal(changed_after, true, "prune reports a change when a bucket expires")
+
   local bounded = aggregate.new_state(1000, 7)
   for index = 1, 40 do
     aggregate.on_cwd_changed(bounded, string.format("/p/d%02d", index), 1000 + index)

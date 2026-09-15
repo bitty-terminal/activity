@@ -85,6 +85,17 @@ local function clamp_retention(value)
   return days
 end
 
+-- Retention precedence: the caller's current setting is authoritative and the
+-- value persisted in the store is only a fallback when no setting value was
+-- supplied (for example, direct module use). This keeps a stale stored window
+-- from silently overriding the user's present choice.
+local function resolve_retention(setting_days, stored_days)
+  if is_finite_number(setting_days) then
+    return clamp_retention(setting_days)
+  end
+  return clamp_retention(stored_days)
+end
+
 --- Create an empty aggregate state.
 function M.new_state(now, retention_days)
   local counters = {}
@@ -146,7 +157,7 @@ function M.normalize(raw, now, retention_days)
   state.updated_at = count_or_zero(raw.updated_at)
   state.first_seen = count_or_zero(raw.first_seen)
   state.last_seen = count_or_zero(raw.last_seen)
-  state.retention_days = clamp_retention(raw.retention_days)
+  state.retention_days = resolve_retention(retention_days, raw.retention_days)
   if type(raw.counters) == "table" then
     for _, key in ipairs(COUNTER_KEYS) do
       state.counters[key] = count_or_zero(raw.counters[key])
@@ -244,12 +255,21 @@ local function touch(state, now)
   state.updated_at = timestamp
 end
 
-function M.on_terminal_opened(state, now)
+-- Fail closed on a malformed payload: a terminal identity that is not a
+-- finite number does not mutate any counter, so a bad event can never drift
+-- aggregates. The accepted payloads carry `terminal_id` as an integer.
+function M.on_terminal_opened(state, terminal_id, now)
+  if not is_finite_number(terminal_id) then
+    return
+  end
   state.counters.terminals_opened = state.counters.terminals_opened + 1
   touch(state, now)
 end
 
-function M.on_terminal_closed(state, now)
+function M.on_terminal_closed(state, terminal_id, now)
+  if not is_finite_number(terminal_id) then
+    return
+  end
   state.counters.terminals_closed = state.counters.terminals_closed + 1
   touch(state, now)
 end
@@ -272,6 +292,9 @@ function M.classify_exit(code)
 end
 
 function M.on_process_exited(state, code, now)
+  if not is_finite_number(code) then
+    return
+  end
   local class = M.classify_exit(code)
   state.counters.exit_events = state.counters.exit_events + 1
   state.counters["exits_" .. class] = state.counters["exits_" .. class] + 1
@@ -305,6 +328,9 @@ function M.on_session_duration(state, seconds, now)
 end
 
 function M.on_cwd_changed(state, cwd, now)
+  if type(cwd) ~= "string" then
+    return
+  end
   state.counters.cwd_events = state.counters.cwd_events + 1
   local label = redact.redact(cwd)
   local entry = state.cwd.entries[label]
@@ -324,17 +350,23 @@ function M.on_cwd_changed(state, cwd, now)
 end
 
 --- Drop cwd buckets older than the retention window; dropped counts fold
--- into the bounded `unlisted` total instead of being retained.
+-- into the bounded `unlisted` total instead of being retained. Returns the
+-- state and a boolean that is true only when at least one bucket was dropped,
+-- so callers can avoid marking state dirty for a no-op prune.
 function M.prune(state, now)
   local cutoff = count_or_zero(now) - clamp_retention(state.retention_days) * SECONDS_PER_DAY
+  local changed = false
   for label, entry in pairs(state.cwd.entries) do
     if entry.last_seen < cutoff then
       state.cwd.unlisted = state.cwd.unlisted + entry.count
       state.cwd.entries[label] = nil
+      changed = true
     end
   end
-  touch(state, now)
-  return state
+  if changed then
+    touch(state, now)
+  end
+  return state, changed
 end
 
 local function render_top(entries)

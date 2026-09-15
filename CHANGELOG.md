@@ -58,6 +58,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   correction only: no tags or releases were ever published, so no published
   artifacts are affected (`CTX-0007`).
 
+### Fixed
+
+- Session pairing no longer leaks: abandoned `terminal.opened` entries are
+  pruned after 24 hours and the least-recently-opened entry is evicted at the
+  64-session cap, so new sessions are never permanently starved (`CTX-0009`,
+  M-ACT-01).
+- A failed coalesced store write re-arms a bounded exponential-backoff retry
+  instead of dropping pending aggregates until the next external event
+  (`CTX-0009`, M-ACT-02).
+- Malformed event payloads (non-numeric `terminal_id` or `exit_code`,
+  non-string `cwd`) fail closed per event and no longer drift counters or arm a
+  flush (`CTX-0009`, R22).
+- The user's current `retention_days` setting takes precedence over the stored
+  window; the consecutive write-failure counter resets after a successful
+  write; and a summary that prunes nothing no longer rewrites the store
+  (`CTX-0009`, R23).
+
 ### Security
 
 - Least-privilege manifest: `terminal.semantic-read` and `platform.notify`
