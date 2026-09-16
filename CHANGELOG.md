@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Adopt the canonical `.editorconfig` baseline (`CTX-0023` slice); the
+  repository-metadata baseline guide and ADR-0011 remain Proposed.
 - Activity v1 implementation (`CTX-0002`): `lua/activity/init.lua`,
   `lua/activity/aggregate.lua`, and `lua/activity/redact.lua`.
   - `summary` command renders a bounded local summary from stored aggregates
