@@ -17,20 +17,21 @@ a minimal scaffold, and a candidate plugin layout, not shipped behavior.
 
 ## Prerequisites
 
-Toolchain expectations (version pins live exclusively in the justfile and are
-mirrored by [package.json](package.json); never invoke formatters or linters
-by name):
+Toolchain expectations (dependency versions are pinned in
+[package.json](package.json) and locked in `bun.lock`; never invoke formatters
+or linters by name):
 
 - `just` — command runner owning all quality-gate invocations.
-- `bun` / `bunx --bun` — JavaScript execution and package management. Never
-  use `npm`, `npx`, or `yarn` in any Bitty repository.
-- `markdownlint-cli2`, `prettier`, `commitlint`, `lefthook` — pinned and
-  invoked through the justfile.
+- `bun` / `bun run <bin>` — JavaScript execution and package management; the
+  justfile invokes installed tools as `bun run <bin>`. Never use `npm`, `npx`,
+  or `yarn` in any Bitty repository.
+- `markdownlint-cli2`, `prettier`, `commitlint`, `lefthook` — materialized by
+  `just install` and invoked through the justfile.
 
 ## Development setup
 
 1. Enter this repository before running Git, CarryCtx, or toolchain commands.
-2. Install pinned development dependencies: `bun install`.
+2. Install pinned development dependencies: `just install`.
 3. Enable Git hooks (optional): `just hooks-install`.
 4. Run all quality gates: `just check` (Markdown lint, Prettier format check,
    manifest validation, and Lua parse). CI runs the same aggregate target.

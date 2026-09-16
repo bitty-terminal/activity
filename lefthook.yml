@@ -1,5 +1,6 @@
 # Git hooks managed by lefthook. Install with `just hooks-install`.
-# All tool pins live in the justfile; this file only wires hooks to it.
+# Tool versions are pinned in package.json and bun.lock; this file only wires
+# hooks to the justfile recipes that invoke them.
 
 commit-msg:
   commands:

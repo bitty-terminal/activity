@@ -41,12 +41,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the `lua/activity/init.lua` entry point using the accepted Plugin API
   v1 surface from ADR 0009.
 - `just` quality gates: Markdown lint, Prettier format check, manifest
-  validation (transitional validator), and Lua parse.
+  validation, and Lua parse.
 - CarryCtx initialization with bootstrap (`CTX-0001`) and v1 implementation
   (`CTX-0002`) tasks.
+- `just install` (`bun install --frozen-lockfile`) and `just deps` (fail-closed
+  dependency guard) gate the toolchain, with `bitty-plugin-sdk`
+  (`bitty-plugin-lint`, R-SDK-2) and `luaparse` added as commit-locked
+  devDependencies (`CTX-0011`).
 
 ### Changed
 
+- `just manifest` now runs the authoritative SDK linter
+  `bitty-plugin-lint` (commit-pinned in `package.json`/`bun.lock`) and fails
+  closed when the pinned dependency is missing; the vendored
+  `scripts/validate-manifest.mjs` and the optional `tests/check-manifest-lint.mjs`
+  wrapper are removed, so the SDK lint is the single source of truth.
+- All tool recipes invoke installed binaries with `bun run <bin>` instead of
+  `bunx --bun <tool>@<pin>`, and the justfile's duplicated pin constants are
+  dropped (pins live in `package.json` + `bun.lock` only), so `just check`
+  never re-resolves over the network and runs offline after one
+  `just install` (`CTX-0011`).
 - `just check` now runs the Lua 5.4 behavior suite and the LuaLS/SDK-linter
   conformance wrappers (`just test`), and CI installs `lua5.4` before the
   gates so the behavior suite is an always-on check (`CTX-0003`).

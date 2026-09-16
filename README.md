@@ -34,20 +34,19 @@ repository snapshot documentation below.
 
 ## Layout
 
-| Path                                    | Purpose                                                                                            |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `bitty-plugin.toml`                     | Static manifest: identity, compatibility, capability requests, and lazy commands/events.           |
-| `lua/activity/init.lua`                 | Entry point evaluated once per activation; registrations and event subscriptions.                  |
-| `lua/activity/aggregate.lua`            | Bounded aggregate state, retention, exit/duration bucketing, and summary rendering.                |
-| `lua/activity/redact.lua`               | cwd reduction to bounded, non-reconstructable labels (final path segment).                         |
-| `tests/`                                | Behavior tests, mock host stub, LuaLS conformance, and SDK linter wrapper (see `tests/README.md`). |
-| `scripts/validate-manifest.mjs`         | Transitional manifest check using the Bun TOML parser; no dependencies.                            |
-| `scripts/workflow-publish.sh`           | In-repo CarryCtx snapshot publisher (`carryctx export --publication` + ref push).                  |
-| `scripts/workflow-import.sh`            | Fresh-clone restore from `refs/heads/carryctx-snapshots`.                                          |
-| `justfile`                              | Quality gates with pinned tool versions.                                                           |
-| `.github/workflows/ci.yml`              | CI quality gate with a read-only token and SHA-pinned actions.                                     |
-| `.github/workflows/codeql.yml`          | CodeQL analysis (`actions`, `javascript-typescript`).                                              |
-| `.github/workflows/snapshot-source.yml` | CarryCtx snapshot staleness gate (push to `main`/`carryctx-snapshots`).                            |
+| Path                                    | Purpose                                                                                  |
+| --------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `bitty-plugin.toml`                     | Static manifest: identity, compatibility, capability requests, and lazy commands/events. |
+| `lua/activity/init.lua`                 | Entry point evaluated once per activation; registrations and event subscriptions.        |
+| `lua/activity/aggregate.lua`            | Bounded aggregate state, retention, exit/duration bucketing, and summary rendering.      |
+| `lua/activity/redact.lua`               | cwd reduction to bounded, non-reconstructable labels (final path segment).               |
+| `tests/`                                | Behavior tests, mock host stub, and LuaLS conformance (see `tests/README.md`).           |
+| `scripts/workflow-publish.sh`           | In-repo CarryCtx snapshot publisher (`carryctx export --publication` + ref push).        |
+| `scripts/workflow-import.sh`            | Fresh-clone restore from `refs/heads/carryctx-snapshots`.                                |
+| `justfile`                              | Quality gates with pinned tool versions.                                                 |
+| `.github/workflows/ci.yml`              | CI quality gate with a read-only token and SHA-pinned actions.                           |
+| `.github/workflows/codeql.yml`          | CodeQL analysis (`actions`, `javascript-typescript`).                                    |
+| `.github/workflows/snapshot-source.yml` | CarryCtx snapshot staleness gate (push to `main`/`carryctx-snapshots`).                  |
 
 ## Behavior (v1)
 
@@ -88,13 +87,15 @@ into a bounded total instead of being retained.
 ## Development
 
 Prerequisites: `just`, `bun`, and `lua5.4` for the behavior suite (CI pins
-Bun 1.4.0 and installs Lua 5.4; the justfile owns all tool pins and never
-invokes formatters or linters directly).
+Bun 1.4.0 and installs Lua 5.4). Dependency versions are pinned in
+`package.json` and locked in `bun.lock`; the justfile invokes installed tools
+as `bun run <bin>` and never invokes formatters or linters directly, so every
+gate resolves locally.
 
 ```sh
-bun install
+just install         # bun install --frozen-lockfile (the only networked gate step)
 just hooks-install   # optional: lefthook commit-msg and pre-commit hooks
-just check           # lint + fmt-check + manifest + lua + test
+just check           # lint + fmt-check + manifest + lua + test (offline)
 ```
 
 Individual gates:
@@ -102,16 +103,18 @@ Individual gates:
 - `just lint` / `just lint-files` — Markdown lint (markdownlint-cli2).
 - `just fmt-check` / `just fmt-check-files` — Prettier format check.
 - `just commit-check` — Conventional Commit message check (commitlint).
-- `just manifest` — validate `bitty-plugin.toml` against the accepted
+- `just manifest` — validate `bitty-plugin.toml` with the authoritative SDK
+  CLI `bitty-plugin-lint` (bitty-plugin-sdk, R-SDK-2) against the accepted
   contract in bitty-docs `docs/specifications/plugin-platform-rfc.md` (file
   name, identity, compatibility, closed capability set, lazy triggers, hard
-  limits). The SDK CLI `bitty-plugin-lint` is authoritative once published;
-  the transitional validator is a fail-closed subset of it.
+  limits). The linter is a commit-pinned devDependency in `package.json` and
+  `bun.lock`; `just install` materializes it, and the gate fails closed when it
+  is absent.
 - `just lua` — parse the entry point with a pinned Lua parser.
-- `just test` — Lua 5.4 behavior suite plus the LuaLS and SDK-linter
-  conformance wrappers; also available as `just test-lua`, `just test-luals`,
-  and `just test-manifest`. The wrappers skip with exit 0 when their optional
-  tool is not installed (see `tests/README.md`).
+- `just test` — Lua 5.4 behavior suite plus the LuaLS conformance wrapper;
+  also available as `just test-lua` and `just test-luals`. The wrapper skips
+  with exit 0 when its optional tool is not installed (see
+  `tests/README.md`).
 
 ## Capabilities and privacy
 
