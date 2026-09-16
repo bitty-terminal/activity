@@ -79,9 +79,10 @@ Task: CTX-XXXX` and PRs add `Closes #<issue>`.
 - Never invoke formatters or linters directly by name. Run quality gates only
   via the justfile: `just check` plus `just lint`, `just fmt-check`,
   `just manifest`, `just lua`.
-- Version pins live in the justfile and `package.json` devDependencies;
-  keep both identical when bumping. Do not bump pins as a side effect of an
-  unrelated task; report drift instead of silently fixing it.
+- Dependency versions are pinned in `package.json` and locked in `bun.lock`;
+  the justfile keeps no version pins and invokes installed tools as
+  `bun run <bin>`. Do not bump pins as a side effect of an unrelated task;
+  report drift instead of silently fixing it.
 - CI success is a hard acceptance gate. Workflow-affecting changes are
   validated locally with `actionlint` before push.
 
