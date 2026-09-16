@@ -51,6 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Repository-metadata refresh: `packageManager` pins `bun@1.4.2`, the
+  `carryctx` devDependency moves to 0.11.5, a conservative `.gitattributes`
+  baseline normalizes text files to LF, and CONTRIBUTING records the
+  contributor-branch convention and the canonical contract sources
+  (`CTX-0012`).
 - `just manifest` now runs the authoritative SDK linter
   `bitty-plugin-lint` (commit-pinned in `package.json`/`bun.lock`) and fails
   closed when the pinned dependency is missing; the vendored

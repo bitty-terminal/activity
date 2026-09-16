@@ -10,8 +10,9 @@ a minimal scaffold, and a candidate plugin layout, not shipped behavior.
   scope boundaries, CarryCtx workflow, toolchain policy, and the security and
   privacy constraints that override convenience.
 - Canonical plugin architecture, API, packaging, compatibility, and security
-  contracts live in `bitty-docs`. This repository must not invent
-  capabilities, lifecycle semantics, or release policy independently.
+  contracts live in `bitty-docs` and `bitty-plugins-docs`. This repository
+  must not invent capabilities, lifecycle semantics, or release policy
+  independently.
 - Never commit, push, publish packages, or mutate remote state without
   explicit authorization from the owning task.
 
@@ -50,6 +51,17 @@ Every pull request states its Issue and CarryCtx task links, impact areas,
 security and privacy impact, reproducible gate evidence, and documentation
 synchronization status. Labels (`feat`/`fix`/`docs`/`chore`, `P0`/`P1`/`P2`,
 `area:*`) and milestone `v0.1.0` are kept in sync.
+
+## Contributor branches
+
+The project is managed with CarryCtx. Official branches follow the CarryCtx
+task convention `ctx-XXXX/<type>-<slug>`, where `XXXX` is the owning task id,
+`<type>` is one of `feat|fix|chore|docs`, and the slug is short kebab-case.
+Commander housekeeping branches use `cmd/<slug>`.
+
+External contributors must use a distinguishable prefix such as
+`<github-handle>/<type>-<slug>` (for example `octocat/fix-manifest-lint`) so
+their branches are never confused with maintainer task branches.
 
 ## Capabilities and privacy
 
