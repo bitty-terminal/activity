@@ -24,13 +24,7 @@ local aggregate = require("activity.aggregate")
 
 local M = {}
 
-local FLUSH_DELAY_MS = 5000
 local MAX_TRACKED_SESSIONS = 64
--- A failed store write is retried automatically with exponential backoff; the
--- attempt budget is bounded per dirty streak so a persistent store outage
--- cannot spin timers forever. A later observation event grants a fresh budget.
-local MAX_WRITE_RETRIES = 5
-local MAX_WRITE_BACKOFF_MS = 80000
 -- An unpaired `terminal.opened` older than this is treated as abandoned and is
 -- dropped instead of waiting forever for a `terminal.closed` that may never
 -- arrive. The bound keeps the pairing table from growing without limit.
@@ -77,47 +71,10 @@ local retention_days = settings_number(
 )
 
 local state = aggregate.load(bitty.store, now_seconds(), retention_days)
-local pending_flush = nil
 local dirty = false
 local write_errors = 0
-local flush_attempts = 0
-local flushing_sync = false
 
-local function retry_delay(attempt)
-  local exponent = attempt - 1
-  if exponent < 0 then
-    exponent = 0
-  end
-  local delay = FLUSH_DELAY_MS * (2 ^ exponent)
-  if delay > MAX_WRITE_BACKOFF_MS then
-    delay = MAX_WRITE_BACKOFF_MS
-  end
-  return delay
-end
-
-local write_state
-
--- Arm one bounded flush timer. If the timer budget is exhausted, write
--- synchronously instead of leaving aggregates in memory indefinitely; the
--- synchronous path never re-arms, which would recurse while the store fails.
-local function arm_flush(delay_ms)
-  if pending_flush ~= nil or flushing_sync then
-    return
-  end
-  local ok, handle = pcall(bitty.timers.create, delay_ms, function()
-    pending_flush = nil
-    write_state()
-  end)
-  if ok and type(handle) == "number" then
-    pending_flush = handle
-    return
-  end
-  flushing_sync = true
-  write_state()
-  flushing_sync = false
-end
-
-write_state = function()
+local function write_state()
   if not dirty then
     return
   end
@@ -127,39 +84,33 @@ write_state = function()
     -- failure counter so transient errors are not reported forever.
     dirty = false
     write_errors = 0
-    flush_attempts = 0
     return
   end
   write_errors = write_errors + 1
-  -- Newer-format data is never overwritten, so retrying cannot succeed.
-  if code == "E_STORE_VERSION" then
+  -- Newer-format or unread data is never overwritten, so retrying the same
+  -- payload cannot succeed; only a later successful read or an explicit
+  -- purge recovers. Other failures stay dirty so the next observation
+  -- event or lifecycle flush retries synchronously.
+  if code == "E_STORE_VERSION" or code == "E_STORE_UNAVAILABLE" then
     return
-  end
-  flush_attempts = flush_attempts + 1
-  if flush_attempts <= MAX_WRITE_RETRIES then
-    arm_flush(retry_delay(flush_attempts))
   end
 end
 
 local function flush_now()
-  if pending_flush ~= nil then
-    pcall(bitty.timers.cancel, pending_flush)
-    pending_flush = nil
-  end
   write_state()
 end
 
--- Coalesce store writes: events mark the state dirty and one bounded one-shot
--- timer flushes it; a failed write re-arms a bounded backoff retry so
--- aggregates are not lost between external events. Lifecycle handlers flush
--- immediately so suspension or disposal never drops pending aggregates.
+-- Synchronous persistence policy, compatible with the accepted activation
+-- lifecycle (timer and task creation is valid only while init.lua executes,
+-- so no post-activation timer is created here). Events mark the state dirty
+-- and persist it immediately; a failed write stays dirty so the next
+-- observation event or lifecycle flush retries. Lifecycle handlers flush
+-- synchronously so suspension or disposal never drops pending aggregates.
+-- Timer delivery is not relied upon and no real scheduling is claimed here;
+-- see the behavior tests for in-memory lifecycle/write-failure coverage.
 local function schedule_flush()
   dirty = true
-  flush_attempts = 0
-  if pending_flush ~= nil then
-    return
-  end
-  arm_flush(FLUSH_DELAY_MS)
+  write_state()
 end
 
 -- Bounded open/close pairing for session durations. Open times live only in
@@ -286,14 +237,18 @@ bitty.commands.register({
   result_schema = { type = "string" },
   run = function(_args)
     if not aggregate.clear(bitty.store) then
+      -- Failed deletion preserves prior in-memory state: aggregates,
+      -- session pairing, and error bookkeeping are left untouched.
       return "Activity: clear failed; stored data was not modified"
     end
-    if pending_flush ~= nil then
-      pcall(bitty.timers.cancel, pending_flush)
-      pending_flush = nil
-    end
+    -- Successful purge resets pairing and persistence bookkeeping so a
+    -- subsequent close cannot record pre-purge duration, old sessions
+    -- cannot occupy capacity, and stale errors are not reported.
     state = aggregate.new_state(now_seconds(), retention_days)
     dirty = false
+    write_errors = 0
+    open_sessions = {}
+    open_session_count = 0
     return "Activity: local timeline data cleared"
   end,
 })

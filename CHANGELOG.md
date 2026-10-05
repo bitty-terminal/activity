@@ -95,6 +95,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   window; the consecutive write-failure counter resets after a successful
   write; and a summary that prunes nothing no longer rewrites the store
   (`CTX-0009`, R23).
+- Persistence uses synchronous writes with no post-activation timers, per the
+  accepted activation lifecycle; a failed write stays dirty for the next event
+  or lifecycle flush without spinning timers (`CTX-0014`, PLUG-APP-001).
+- A thrown store read marks state unavailable and refuses later writes, so
+  unread history (including unread newer-format data) is never replaced until
+  a successful read or an explicit purge (`CTX-0015`, PLUG-APP-002).
+- A successful purge resets session pairing and error bookkeeping; a failed
+  purge preserves prior state (`CTX-0016`, PLUG-APP-003).
 
 ### Security
 

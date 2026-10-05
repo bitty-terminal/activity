@@ -57,17 +57,20 @@ Two commands are registered during activation (both reserved in `[lazy]`):
   pending aggregates, and returns a bounded text summary. It also shows one
   local `platform.notify` notification.
 - `bitty-featured.activity:clear` — explicit user purge: deletes the stored
-  aggregate value and resets in-memory state.
+  aggregate value and resets in-memory state, session pairing, and
+  error bookkeeping.
 
-Observation events update aggregates; one bounded one-shot timer coalesces
-store writes, and the `plugin.suspended` / `plugin.disposed` lifecycle events
-flush pending state before the generation goes away. A failed transient write
-re-arms a bounded exponential-backoff retry (at most five automatic attempts
-per dirty streak, reset by the next observation event), so pending aggregates
-are not lost between events; the consecutive-failure counter resets after a
-successful write. Payload fields are type-checked and events fail closed: a
-malformed `terminal_id`, `exit_code`, or `cwd` never mutates an aggregate or
-arms a flush.
+Observation events update aggregates and persist them synchronously; no
+post-activation timer is created, per the accepted activation lifecycle
+(timer and task creation is valid only while `init.lua` executes). The
+`plugin.suspended` / `plugin.disposed` lifecycle events flush pending state
+before the generation goes away. A failed transient write stays dirty so the
+next observation event or lifecycle flush retries synchronously; data the
+plugin could not read (including a newer format it never saw) is never
+overwritten, and the consecutive-failure counter resets after a successful
+write. Payload fields are type-checked and events fail closed: a malformed
+`terminal_id`, `exit_code`, or `cwd` never mutates an aggregate or marks
+state dirty.
 
 Durations pair `terminal.opened` and `terminal.closed` by `terminal_id` in
 generation-scoped memory (at most 64 tracked sessions). Abandoned opens are

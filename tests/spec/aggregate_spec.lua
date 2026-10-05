@@ -148,6 +148,41 @@ function M.run(context)
   tap.equal(code, "E_STORE_VERSION", "incompatible save returns the stable code")
   tap.equal(store.data[aggregate.STORE_KEY].version, aggregate.FORMAT_VERSION + 1, "newer data is untouched")
 
+  -- PLUG-APP-002: absent reads yield an available empty state, while a
+  -- thrown read yields an unavailable empty state that `save` refuses, so
+  -- unread history (including unread newer-format data) is never replaced.
+  -- Only a later successful `load` or an explicit `clear` recovers.
+  local absent_store = new_store()
+  local absent = aggregate.load(absent_store, 10, 7)
+  tap.equal(absent.unavailable, false, "absent data loads as available")
+  tap.ok(aggregate.save(absent_store, absent), "absent state may be persisted")
+
+  local unavail_store_data = { [aggregate.STORE_KEY] = { version = aggregate.FORMAT_VERSION + 1 } }
+  local throwing_backed = {
+    get = function(key)
+      error("injected read failure")
+    end,
+    set = function(key, value)
+      unavail_store_data[key] = value
+      return true
+    end,
+  }
+  local unavail = aggregate.load(throwing_backed, 10, 7)
+  tap.equal(unavail.unavailable, true, "a thrown read loads as unavailable")
+  tap.equal(unavail.incompatible, false, "unavailable is distinct from incompatible")
+  aggregate.on_cwd_changed(unavail, "/srv/app", 11)
+  local unavail_saved, unavail_code = aggregate.save(throwing_backed, unavail)
+  tap.equal(unavail_saved, false, "unavailable state refuses to save")
+  tap.equal(unavail_code, "E_STORE_UNAVAILABLE", "unavailable save returns the stable code")
+  tap.equal(
+    unavail_store_data[aggregate.STORE_KEY].version,
+    aggregate.FORMAT_VERSION + 1,
+    "unread newer-format data survives the refused write"
+  )
+  local unavail_summary = aggregate.render(unavail, { now = 11, write_errors = 1 })
+  tap.contains(unavail_summary, "currently unavailable", "unavailable summary explains the state")
+  tap.contains(unavail_summary, "writes failed: 1", "unavailable summary reports refused writes")
+
   local roundtrip = new_store()
   local state = aggregate.new_state(500, 7)
   aggregate.on_cwd_changed(state, "/home/dev/project", 500)

@@ -3,7 +3,8 @@
 -- This is a test double, not a host implementation: it models only the
 -- accepted Plugin API v1 subset the plugin uses (ADR 0009 / Plugin API v1
 -- Lua Surface RFC), with fail-closed capability gates, bounded store values,
--- manifest-declared command/event validation, and one-shot virtual timers.
+-- manifest-declared command/event validation, an activation-only registration
+-- window (commands, events, timers), and one-shot virtual timers.
 -- It performs no I/O, spawns nothing, and never touches the network or the
 -- filesystem.
 
@@ -125,6 +126,10 @@ function MockHost.new(options)
   self.subscriptions = {}
   self.notifications = {}
   self.timers = {}
+  -- Activation-only registration window: commands, events, and timers may
+  -- be created only while init.lua executes. Tests seal the window right
+  -- after loading the plugin; later creation fails closed.
+  self.activation_open = true
   self.clock = 0
   self.sequence = 1
   self.handle_counter = 0
@@ -132,6 +137,10 @@ function MockHost.new(options)
   self.snapshot = options.snapshot
   self.bitty = self:build_bitty()
   return self
+end
+
+function MockHost:seal_activation()
+  self.activation_open = false
 end
 
 function MockHost:grant(name)
@@ -149,6 +158,9 @@ function MockHost:build_bitty()
     api_version = "1.0.0",
     commands = {
       register = function(def)
+        if not self.activation_open then
+          fail("validation", "E_REGISTRATION_CLOSED", "registration is valid only during init.lua execution")
+        end
         if type(def) ~= "table" or type(def.id) ~= "string" then
           fail("validation", "E_DEF_INVALID", "command definition is invalid")
         end
@@ -165,6 +177,9 @@ function MockHost:build_bitty()
     },
     events = {
       subscribe = function(name, handler)
+        if not self.activation_open then
+          fail("validation", "E_REGISTRATION_CLOSED", "registration is valid only during init.lua execution")
+        end
         if type(name) ~= "string" or type(handler) ~= "function" then
           fail("validation", "E_DEF_INVALID", "event subscription is invalid")
         end
@@ -256,6 +271,9 @@ function MockHost:build_bitty()
     },
     timers = {
       create = function(delay_ms, callback)
+        if not self.activation_open then
+          fail("validation", "E_REGISTRATION_CLOSED", "registration is valid only during init.lua execution")
+        end
         if type(delay_ms) ~= "number" or type(callback) ~= "function" then
           fail("validation", "E_DEF_INVALID", "timer definition is invalid")
         end

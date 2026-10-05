@@ -1,5 +1,12 @@
 -- End-to-end behavior tests for the activity entry point against the local
 -- `bitty` host stub.
+--
+-- Persistence policy under test (PLUG-APP-001): synchronous writes compatible
+-- with the accepted activation lifecycle. Timer and task creation is valid
+-- only while init.lua executes, so the plugin creates no post-activation
+-- timers here; events persist immediately and lifecycle handlers flush
+-- synchronously. Timer delivery is not relied upon and no real scheduling is
+-- claimed; this suite covers the in-memory lifecycle/write-failure behavior.
 
 local MockHost = require("support.mock_host")
 
@@ -39,7 +46,9 @@ function M.run(context)
   local function load_plugin(host)
     _G.bitty = host.bitty
     local chunk = assert(loadfile(root .. "/lua/activity/init.lua"))
-    return chunk()
+    local module = chunk()
+    host:seal_activation()
+    return module
   end
 
   local registration = new_host()
@@ -53,6 +62,20 @@ function M.run(context)
   tap.equal(summary_def.args_schema.additionalProperties, false, "summary args are closed")
   tap.equal(summary_def.result_schema.type, "string", "summary declares a result schema")
 
+  -- PLUG-APP-001: the mock enforces the activation-only registration window.
+  local window_ok, window_err = pcall(registration.bitty.timers.create, 1000, function() end)
+  tap.equal(window_ok, false, "post-activation timer creation is rejected")
+  if not window_ok then
+    tap.equal(window_err.code, "E_REGISTRATION_CLOSED", "timer rejection uses the stable code")
+  end
+  local cmd_ok, cmd_err = pcall(registration.bitty.commands.register, { id = "late" })
+  tap.equal(cmd_ok, false, "post-activation command registration is rejected")
+  if not cmd_ok then
+    tap.equal(cmd_err.code, "E_REGISTRATION_CLOSED", "command rejection uses the stable code")
+  end
+
+  -- Synchronous persistence: events are written immediately, no timer is
+  -- created, and the store holds the aggregates without any clock advance.
   local host = new_host()
   load_plugin(host)
   host:publish("terminal.opened", { terminal_id = 1 })
@@ -64,13 +87,11 @@ function M.run(context)
   host:publish("process.exited", { exit_code = 0 })
   host:publish("process.exited", { exit_code = 1 })
   host:publish("process.exited", { exit_code = 130 })
-  tap.equal(host.store_data["timeline.v1"], nil, "writes are coalesced behind the timer")
-  tap.equal(host:pending_timers(), 1, "one bounded flush timer is pending")
-  host:advance(5000)
-  tap.equal(host:pending_timers(), 0, "flush timer is one-shot")
+  tap.equal(host:pending_timers(), 0, "synchronous policy creates no flush timer")
+  tap.ok(host.store_data["timeline.v1"] ~= nil, "events persist synchronously")
 
   local payload = host.store_data["timeline.v1"]
-  tap.ok(payload ~= nil, "state is flushed after the timer fires")
+  tap.ok(payload ~= nil, "state is stored after events")
   tap.equal(payload.counters.terminals_opened, 2, "terminal opens counted")
   tap.equal(payload.counters.terminals_closed, 1, "terminal closes counted")
   tap.equal(payload.counters.cwd_events, 3, "cwd changes counted")
@@ -88,13 +109,19 @@ function M.run(context)
   end
   tap.not_contains(stored_text, "/home/dev", "store never receives the raw path")
 
+  -- Lifecycle: suspend and dispose flush synchronously; with synchronous
+  -- writes the store already holds the state and no timer exists.
   local suspend_host = new_host()
   load_plugin(suspend_host)
   suspend_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
-  tap.equal(suspend_host:pending_timers(), 1, "flush timer is pending before suspend")
+  tap.equal(suspend_host:pending_timers(), 0, "no flush timer is pending before suspend")
+  tap.ok(suspend_host.store_data["timeline.v1"] ~= nil, "event persisted before suspend")
   suspend_host:suspend()
-  tap.equal(suspend_host:pending_timers(), 0, "suspend cancels the pending timer")
-  tap.ok(suspend_host.store_data["timeline.v1"] ~= nil, "suspend flushes pending state")
+  tap.equal(suspend_host:pending_timers(), 0, "suspend leaves no timer")
+  tap.ok(suspend_host.store_data["timeline.v1"] ~= nil, "suspend keeps persisted state")
+  suspend_host:dispose()
+  tap.equal(suspend_host:pending_timers(), 0, "dispose leaves no timer")
+  tap.ok(suspend_host.store_data["timeline.v1"] ~= nil, "dispose keeps persisted state")
 
   local fake_now = 1700000000
   local real_time = os.time
@@ -114,7 +141,6 @@ function M.run(context)
   duration_host:publish("terminal.closed", { terminal_id = 3 })
   duration_host:publish("terminal.closed", { terminal_id = 99 })
   duration_host:publish("terminal.opened", { terminal_id = 4 })
-  duration_host:advance(5000)
   os.time = real_time
   local duration_payload = duration_host.store_data["timeline.v1"]
   tap.equal(duration_payload.durations.lt1m, 0, "sub-minute sessions are not recorded")
@@ -138,7 +164,6 @@ function M.run(context)
   for id = 1, 70 do
     cap_host:publish("terminal.closed", { terminal_id = id })
   end
-  cap_host:advance(5000)
   os.time = real_time_cap
   local cap_payload = cap_host.store_data["timeline.v1"]
   tap.equal(cap_payload.durations.m1_10, 64, "duration pairing is bounded to 64 sessions")
@@ -161,7 +186,6 @@ function M.run(context)
   for id = 137, 200 do
     evict_host:publish("terminal.closed", { terminal_id = id })
   end
-  evict_host:advance(5000)
   os.time = real_time_evict
   local evict_payload = evict_host.store_data["timeline.v1"]
   tap.equal(evict_payload.durations.m1_10, 64, "cap evicts oldest opens so newest sessions still pair")
@@ -182,7 +206,6 @@ function M.run(context)
   age_host:publish("terminal.closed", { terminal_id = 1 })
   age_now = age_now + 61
   age_host:publish("terminal.closed", { terminal_id = 2 })
-  age_host:advance(5000)
   os.time = real_time_age
   local age_payload = age_host.store_data["timeline.v1"]
   tap.equal(age_payload.durations.m1_10, 1, "the fresh session records its bucket")
@@ -205,22 +228,22 @@ function M.run(context)
   malformed_host:publish("process.exited", {})
   malformed_host:publish("process.exited", { exit_code = "0" })
   malformed_host:publish("process.exited", { exit_code = 0 / 0 })
-  tap.equal(malformed_host:pending_timers(), 0, "malformed events arm no flush timer")
+  tap.equal(malformed_host:pending_timers(), 0, "malformed events create no timer")
   local malformed_summary = malformed_host:run("summary")
   tap.contains(malformed_summary, "sessions: 0 opened, 0 closed", "malformed opens/closes do not drift counters")
   tap.contains(malformed_summary, "events: 0 cwd, 0 exit", "malformed cwd/exit do not drift counters")
   tap.equal(malformed_host.store_data["timeline.v1"], nil, "malformed-only events persist nothing")
   malformed_host:publish("terminal.opened", { terminal_id = 1 })
-  tap.equal(malformed_host:pending_timers(), 1, "a valid event after malformed ones still arms a flush")
-  malformed_host:advance(5000)
+  tap.equal(malformed_host:pending_timers(), 0, "a valid event still uses no timer")
   tap.equal(
     malformed_host.store_data["timeline.v1"].counters.terminals_opened,
     1,
     "a valid event after malformed ones still counts"
   )
 
-  -- M-ACT-02: a failed flush re-arms a bounded retry; a later success persists
-  -- without any further external event and clears the failure counter.
+  -- Synchronous write-failure handling: a failed write stays dirty with no
+  -- timer; the next observation event retries synchronously and a success
+  -- clears the failure counter.
   local retry_host = new_host()
   load_plugin(retry_host)
   local retry_real_set = retry_host.bitty.store.set
@@ -233,29 +256,158 @@ function M.run(context)
     return retry_real_set(key, value)
   end
   retry_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
-  tap.equal(retry_host:pending_timers(), 1, "the first flush is scheduled")
-  retry_host:advance(5000)
   tap.equal(retry_host.store_data["timeline.v1"], nil, "a failed write leaves no stored value")
-  tap.equal(retry_host:pending_timers(), 1, "a failed write re-arms exactly one retry")
-  retry_host:advance(5000)
-  tap.ok(retry_host.store_data["timeline.v1"] ~= nil, "the retry persists without another event")
+  tap.equal(retry_host:pending_timers(), 0, "a failed write creates no retry timer")
+  retry_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
+  tap.ok(retry_host.store_data["timeline.v1"] ~= nil, "the next event retries synchronously")
   local retry_summary = retry_host:run("summary")
   tap.not_contains(retry_summary, "writes failed", "the failure counter resets after a successful write")
 
-  -- M-ACT-02: retries are bounded; a persistent outage stops after the budget
-  -- instead of spinning timers forever.
+  -- A persistent outage never spins timers: every failing event increments
+  -- the consecutive-failure counter and stays dirty for the next retry.
   local bounded_host = new_host()
   load_plugin(bounded_host)
   bounded_host.bitty.store.set = function()
     error({ class = "runtime", code = "E_STORE_WRITE", message = "always fails" })
   end
   bounded_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
-  for _ = 1, 6 do
-    bounded_host:advance(100000)
-  end
-  tap.equal(bounded_host:pending_timers(), 0, "retries stop after the bounded budget")
+  bounded_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
+  bounded_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
+  tap.equal(bounded_host:pending_timers(), 0, "a persistent outage creates no timers")
+  tap.equal(bounded_host.store_data["timeline.v1"], nil, "a persistent outage stores nothing")
   local bounded_summary = bounded_host:run("summary")
-  tap.contains(bounded_summary, "writes failed: 6", "the failure count reflects the bounded attempts")
+  tap.contains(bounded_summary, "writes failed: 3", "the failure count reflects each synchronous attempt")
+
+  -- PLUG-APP-002: a thrown read marks the state unavailable; later writes
+  -- must not replace the unread history, including unread newer-format data.
+  -- Only a later successful read or an explicit purge recovers.
+  local unavail_host = new_host()
+  unavail_host.store_data["timeline.v1"] = { version = 99 }
+  local unavail_real_get = unavail_host.bitty.store.get
+  local unavail_get_calls = 0
+  unavail_host.bitty.store.get = function(key)
+    unavail_get_calls = unavail_get_calls + 1
+    if unavail_get_calls == 1 then
+      error({ class = "runtime", code = "E_STORE_READ", message = "injected read failure" })
+    end
+    return unavail_real_get(key)
+  end
+  load_plugin(unavail_host)
+  unavail_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
+  tap.equal(unavail_host.store_data["timeline.v1"].version, 99, "unread newer-format data is never overwritten")
+  tap.equal(unavail_host:pending_timers(), 0, "an unavailable write creates no timer")
+  local unavail_summary = unavail_host:run("summary")
+  tap.contains(unavail_summary, "currently unavailable", "summary explains the unavailable state")
+  tap.contains(unavail_summary, "writes failed: 1", "summary reports the refused write")
+
+  -- A later successful read (next activation) sees the preserved newer
+  -- format instead of the empty replacement that a naive reset would write.
+  local recovery_host = new_host({ store = unavail_host.store_data })
+  load_plugin(recovery_host)
+  local recovery_summary = recovery_host:run("summary")
+  tap.contains(recovery_summary, "newer plugin version", "recovery distinguishes newer-format data")
+  tap.equal(recovery_host.store_data["timeline.v1"].version, 99, "recovery preserves the newer-format value")
+
+  -- An explicit purge recovers from the unavailable state to an available
+  -- empty state.
+  local purge_unavail_result = unavail_host:run("clear")
+  tap.contains(purge_unavail_result, "cleared", "purge recovers from the unavailable state")
+  local after_unavail_purge = unavail_host:run("summary")
+  tap.not_contains(after_unavail_purge, "unavailable", "purged state is available again")
+  tap.contains(after_unavail_purge, "sessions: 0 opened", "purged state is empty")
+
+  -- PLUG-APP-003: a successful purge resets session pairing and persistence
+  -- bookkeeping so pre-purge opens record nothing afterwards.
+  local purge_now = 1700000000
+  local real_time_purge = os.time
+  os.time = function()
+    return purge_now
+  end
+  local purge_host = new_host()
+  load_plugin(purge_host)
+  purge_host:publish("terminal.opened", { terminal_id = 1 })
+  purge_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
+  local purge_real_set = purge_host.bitty.store.set
+  local purge_fail_once = 1
+  purge_host.bitty.store.set = function(key, value)
+    if purge_fail_once > 0 then
+      purge_fail_once = purge_fail_once - 1
+      error({ class = "runtime", code = "E_STORE_WRITE", message = "injected write failure" })
+    end
+    return purge_real_set(key, value)
+  end
+  purge_now = purge_now + 10
+  purge_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
+  local pre_purge_summary = purge_host:run("summary")
+  tap.contains(pre_purge_summary, "writes failed", "bookkeeping records the write error before purge")
+  purge_host.bitty.store.set = purge_real_set
+  local purge_result = purge_host:run("clear")
+  tap.contains(purge_result, "cleared", "purge reports success")
+  tap.equal(purge_host.store_data["timeline.v1"], nil, "purge deletes stored aggregates")
+  purge_now = purge_now + 61
+  purge_host:publish("terminal.closed", { terminal_id = 1 })
+  local post_purge_payload = purge_host.store_data["timeline.v1"]
+  tap.equal(post_purge_payload.durations.m1_10, 0, "a pre-purge open records no duration after purge")
+  tap.equal(post_purge_payload.durations.lt1m, 0, "no duration bucket is recorded after purge")
+  local post_purge_summary = purge_host:run("summary")
+  tap.not_contains(post_purge_summary, "writes failed", "purge resets the error bookkeeping")
+  tap.contains(post_purge_summary, "sessions: 0 opened", "purge resets the in-memory aggregates")
+  os.time = real_time_purge
+
+  -- PLUG-APP-003: a failed purge preserves prior state: stored data,
+  -- session pairing, and error bookkeeping are left untouched.
+  local fail_now = 1700000000
+  local real_time_fail = os.time
+  os.time = function()
+    return fail_now
+  end
+  local fail_host = new_host()
+  load_plugin(fail_host)
+  fail_host:publish("terminal.opened", { terminal_id = 5 })
+  fail_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
+  tap.ok(fail_host.store_data["timeline.v1"] ~= nil, "state is stored before the failed purge")
+  fail_host.bitty.store.set = function()
+    error({ class = "runtime", code = "E_STORE_WRITE", message = "purge deletion fails" })
+  end
+  fail_now = fail_now + 10
+  fail_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
+  local fail_result = fail_host:run("clear")
+  tap.contains(fail_result, "not modified", "failed purge reports no modification")
+  tap.ok(fail_host.store_data["timeline.v1"] ~= nil, "failed purge preserves stored aggregates")
+  local fail_summary = fail_host:run("summary")
+  tap.contains(fail_summary, "writes failed", "failed purge preserves error bookkeeping")
+  fail_now = fail_now + 61
+  fail_host:publish("terminal.closed", { terminal_id = 5 })
+  local fail_payload = fail_host.store_data["timeline.v1"]
+  tap.ok(fail_payload ~= nil, "failed purge preserves stored aggregates through the outage")
+  os.time = real_time_fail
+
+  -- The pairing-preservation half of the failed-purge case, without the
+  -- store outage masking the duration write: deletion fails but later
+  -- event writes succeed, so the pre-purge pairing still records.
+  local pair_now = 1700000000
+  local real_time_pair = os.time
+  os.time = function()
+    return pair_now
+  end
+  local pair_host = new_host()
+  load_plugin(pair_host)
+  pair_host:publish("terminal.opened", { terminal_id = 9 })
+  local pair_real_set = pair_host.bitty.store.set
+  pair_host.bitty.store.set = function(key, value)
+    if key == "timeline.v1" and value == nil then
+      return false
+    end
+    return pair_real_set(key, value)
+  end
+  local pair_fail_result = pair_host:run("clear")
+  tap.contains(pair_fail_result, "not modified", "failed deletion reports no modification")
+  pair_host.bitty.store.set = pair_real_set
+  pair_now = pair_now + 61
+  pair_host:publish("terminal.closed", { terminal_id = 9 })
+  local pair_payload = pair_host.store_data["timeline.v1"]
+  tap.equal(pair_payload.durations.m1_10, 1, "failed purge preserves session pairing")
+  os.time = real_time_pair
 
   local utf8_host = new_host()
   local utf8_ok, utf8_err = pcall(function()
@@ -320,7 +472,6 @@ function M.run(context)
   newer_host.store_data["timeline.v1"] = { version = 99 }
   load_plugin(newer_host)
   newer_host:publish("terminal.cwd-changed", { cwd = "/srv/app" })
-  newer_host:advance(5000)
   tap.equal(newer_host.store_data["timeline.v1"].version, 99, "newer stored data is never overwritten")
   local newer_summary = newer_host:run("summary")
   tap.contains(newer_summary, "newer plugin version", "summary explains newer stored data")

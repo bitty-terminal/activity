@@ -109,6 +109,7 @@ function M.new_state(now, retention_days)
   return {
     version = M.FORMAT_VERSION,
     incompatible = false,
+    unavailable = false,
     updated_at = count_or_zero(now),
     first_seen = count_or_zero(now),
     last_seen = count_or_zero(now),
@@ -185,11 +186,26 @@ local function incompatible_state(now, retention_days)
   return state
 end
 
---- Load aggregate state from a store namespace, resetting on read failure.
+--- Mark a state whose persisted value could not be read. Keeping the marker
+-- makes `save` refuse to replace unread history; only a later successful
+-- read (fresh `load`) or an explicit purge (`clear`) recovers. In-memory
+-- events still apply to the empty counters so the current summary reflects
+-- recent activity, but they are never persisted while unavailable.
+local function unavailable_state(now, retention_days)
+  local state = M.new_state(now, retention_days)
+  state.unavailable = true
+  return state
+end
+
+--- Load aggregate state from a store namespace.
+-- Absent data (`nil`) yields an available empty state that may be persisted.
+-- A thrown read yields an unavailable empty state that `save` refuses to
+-- persist, so a failed read followed by a successful write cannot replace
+-- unread history (including unread newer-format data).
 function M.load(store, now, retention_days)
   local ok, raw = pcall(store.get, M.STORE_KEY)
   if not ok then
-    return M.new_state(now, retention_days)
+    return unavailable_state(now, retention_days)
   end
   if raw == nil then
     return M.new_state(now, retention_days)
@@ -227,7 +243,13 @@ end
 
 --- Persist the aggregate state. Fails soft: returns a boolean and, on
 -- failure, a stable local code (store errors surface as `E_STORE_WRITE`).
+-- Unavailable state (a prior read threw) and newer-format state refuse with
+-- `E_STORE_UNAVAILABLE` / `E_STORE_VERSION` so unread history is never
+-- replaced; only a later successful `load` or an explicit `clear` recovers.
 function M.save(store, state)
+  if state.unavailable then
+    return false, "E_STORE_UNAVAILABLE"
+  end
   if state.incompatible then
     return false, "E_STORE_VERSION"
   end
@@ -400,6 +422,13 @@ function M.render(state, opts)
   local now = count_or_zero(opts.now)
   local lines = {}
   push(lines, "Bitty Activity - local-only aggregates (no telemetry, no network)")
+  if state.unavailable then
+    push(lines, "stored data is currently unavailable; not modified")
+    if opts.write_errors ~= nil and count_or_zero(opts.write_errors) > 0 then
+      push(lines, string.format("writes failed: %d", count_or_zero(opts.write_errors)))
+    end
+    return table.concat(lines, "\n"), "Activity stored data is unavailable"
+  end
   if state.incompatible then
     push(lines, "stored data was written by a newer plugin version; not modified")
     if opts.write_errors ~= nil and count_or_zero(opts.write_errors) > 0 then
