@@ -3,50 +3,106 @@
 Privacy-first local activity timeline plugin for the
 [Bitty terminal](https://github.com/bitty-terminal/bitty).
 
-This repository is the pathfinder for the first featured-plugin wave (bitty
-CarryCtx task `CTX-0221`, planning note `PX-1199`): one independent plugin
-repository under the `bitty-terminal` organization, scaffolded from
-[bitty-plugin-template](https://github.com/bitty-terminal/bitty-plugin-template)
-and validated against
-[bitty-plugin-sdk](https://github.com/bitty-terminal/bitty-plugin-sdk).
+> Status: v1 implementation present, host integration still landing. The plugin
+> package, manifest, and policy are implemented and tested headlessly against
+> the accepted Plugin API v1 surface; nothing here is a shipped feature until
+> the host surfaces it. Compatibility and activation claims are limited to the
+> manifest `[compat]` ranges.
 
-> Status: v1 implementation present, host integration still landing. The Bitty
-> plugin host and the accepted Plugin API v1 bindings are still being built,
-> so nothing here is a shipped feature. The repository implements the v1
-> privacy-first timeline against the accepted surface and validates it with
-> `just check`, the behavior tests in `tests/`, LuaLS conformance, and
-> `bitty-plugin-lint`.
+## Overview
 
-## See the project workflow (CarryCtx)
+Bitty Activity keeps a privacy-first local timeline of terminal activity:
+sessions opened and closed, working-directory changes, process exits, and
+session-duration buckets. Aggregates live in the plugin store and are returned
+by the `summary` command and a low-urgency local notification. The plugin opens
+no socket, spawns no process, and never stores command text, terminal contents,
+full paths, or environment values.
 
-CarryCtx engineering state (tasks, sessions, checkpoints) is not cloned. A
-fresh clone restores it from the in-repo `refs/heads/carryctx-snapshots`
-branch:
+## Install
+
+Prerequisites: Bitty `>=0.0.24,<0.1` and Plugin API `^1.0` (from
+`bitty-plugin.toml` `[compat]`), plus `just` and `bun` only if you build from a
+checkout.
+
+Install from the repository, then enable it:
 
 ```sh
-just workflow-import-dry   # fetch + validate the snapshot; no DB writes
-just workflow-import       # initialize CarryCtx state if needed, then import
+bitty plugin install https://github.com/bitty-terminal/activity.git
+bitty plugin enable bitty-featured.activity
+bitty plugin list   # confirm state and grants
 ```
 
-Then `carryctx stats` reports the restored tasks, sessions, and checkpoints.
-Provenance, redaction, and `--force` behavior are covered under the
-repository snapshot documentation below.
+From a local checkout, install the directory instead:
 
-## Layout
+```sh
+bitty plugin install ./activity --yes
+bitty plugin enable bitty-featured.activity
+```
 
-| Path                                    | Purpose                                                                                  |
-| --------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `bitty-plugin.toml`                     | Static manifest: identity, compatibility, capability requests, and lazy commands/events. |
-| `lua/activity/init.lua`                 | Entry point evaluated once per activation; registrations and event subscriptions.        |
-| `lua/activity/aggregate.lua`            | Bounded aggregate state, retention, exit/duration bucketing, and summary rendering.      |
-| `lua/activity/redact.lua`               | cwd reduction to bounded, non-reconstructable labels (final path segment).               |
-| `tests/`                                | Behavior tests, mock host stub, and LuaLS conformance (see `tests/README.md`).           |
-| `scripts/workflow-publish.sh`           | In-repo CarryCtx snapshot publisher (`carryctx export --publication` + ref push).        |
-| `scripts/workflow-import.sh`            | Fresh-clone restore from `refs/heads/carryctx-snapshots`.                                |
-| `justfile`                              | Quality gates with pinned tool versions.                                                 |
-| `.github/workflows/ci.yml`              | CI quality gate with a read-only token and SHA-pinned actions.                           |
-| `.github/workflows/codeql.yml`          | CodeQL analysis (`actions`, `javascript-typescript`).                                    |
-| `.github/workflows/snapshot-source.yml` | CarryCtx snapshot staleness gate (push to `main`/`carryctx-snapshots`).                  |
+`bitty plugin list` confirms activation: the entry must be enabled and show the
+requested grants (`terminal.semantic-read`, `platform.notify`). A disabled entry
+carries a `disabled_reason`; see [Troubleshooting](#troubleshooting).
+
+## Commands
+
+| Command                           | What it does                                                                                                  | Arguments | Default keybinding |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------- | --------- | ------------------ |
+| `bitty-featured.activity:summary` | Prunes the retention window, returns a bounded summary of local aggregates, and shows one local notification. | None      | None               |
+| `bitty-featured.activity:clear`   | Deletes every stored activity aggregate and resets in-memory state, session pairing, and error bookkeeping.   | None      | None               |
+
+Run either command from the command palette. Both take an empty object as
+arguments (`additionalProperties = false`).
+
+## Configuration
+
+Settings are declared in `bitty-plugin.toml` `[settings]` and resolved from
+`$XDG_CONFIG_HOME/bitty/plugins/bitty-featured.activity.lua`. Every key is
+user-owned; the plugin never writes settings.
+
+| Key                  | Type    | Default | Description                                                                                                            | Applies         |
+| -------------------- | ------- | ------- | ---------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `retention_days`     | integer | `7`     | Days of aggregates to retain, clamped to `1..90`. The current setting takes precedence over the window in stored data. | Next activation |
+| `store_command_args` | boolean | `false` | Reserved opt-in. v1 never stores command arguments, so `true` changes nothing; the key stays read-only and inert.      | Next activation |
+
+```lua
+-- $XDG_CONFIG_HOME/bitty/plugins/bitty-featured.activity.lua
+return {
+  retention_days = 14,
+  store_command_args = false,
+}
+```
+
+The host resolves settings at activation and pins them to that generation;
+editing the file takes effect on the next activation. Wrong-typed or
+out-of-range values fall back without widening what is stored.
+
+## Keybindings
+
+The plugin installs no keybindings. Bind a command yourself in
+`$XDG_CONFIG_HOME/bitty/init.lua`; user mappings keep precedence:
+
+```lua
+return {
+  keymaps = {
+    {
+      chord = "ctrl+alt+a",
+      action = "bitty-featured.activity:summary",
+      context = "global",
+    },
+  },
+}
+```
+
+## Troubleshooting
+
+| Symptom / error            | Meaning                                                                                                                                                                              | What to do                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `E_INCOMPATIBLE`           | The host application or Plugin API version is outside the manifest `[compat]` ranges; the plugin is disabled with no partial activation.                                             | Upgrade Bitty, or install a plugin revision whose ranges admit your host. Do not edit the manifest ranges to bypass the check.                  |
+| `E_SETTINGS_UNDECLARED`    | The plugin read a settings key that is not declared in `[settings]`. This is a plugin defect, not a configuration error.                                                             | Both keys above are declared; if it still appears, report it with `bitty plugin info bitty-featured.activity` and run `bitty --safe` meanwhile. |
+| Capability denied          | A grant is missing (`E_CAPABILITY_DENIED`, class `runtime`): no `terminal.semantic-read` means no zone count; no `platform.notify` means no notification. The summary still renders. | Re-run `bitty plugin install` and approve the grants, or inspect granted versus requested capabilities with `bitty plugin list`.                |
+| Store reports newer format | `E_STORE_VERSION`: stored data was written by a newer plugin format. The plugin never overwrites data it cannot read.                                                                | Upgrade the plugin; `bitty-featured.activity:clear` is the explicit purge if you accept losing that data.                                       |
+| Store unavailable          | `E_STORE_UNAVAILABLE`: the plugin store could not be read; the summary says the stored data is unavailable and is not modified.                                                      | Restart Bitty, check free disk space and permissions on the state directory, then retry.                                                        |
+| `E_SPAWN_FAILED`           | Not applicable: this plugin spawns no process and opens no socket.                                                                                                                   | —                                                                                                                                               |
 
 ## Behavior (v1)
 
@@ -87,38 +143,6 @@ setting takes precedence over the value stored in `timeline.v1`, which is used
 only as a fallback when no setting value is available; expired cwd buckets fold
 into a bounded total instead of being retained.
 
-## Development
-
-Prerequisites: `just`, `bun`, and `lua5.4` for the behavior suite (CI pins
-Bun 1.4.0 and installs Lua 5.4). Dependency versions are pinned in
-`package.json` and locked in `bun.lock`; the justfile invokes installed tools
-as `bun run <bin>` and never invokes formatters or linters directly, so every
-gate resolves locally.
-
-```sh
-just install         # bun install --frozen-lockfile (the only networked gate step)
-just hooks-install   # optional: lefthook commit-msg and pre-commit hooks
-just check           # lint + fmt-check + manifest + lua + test (offline)
-```
-
-Individual gates:
-
-- `just lint` / `just lint-files` — Markdown lint (markdownlint-cli2).
-- `just fmt-check` / `just fmt-check-files` — Prettier format check.
-- `just commit-check` — Conventional Commit message check (commitlint).
-- `just manifest` — validate `bitty-plugin.toml` with the authoritative SDK
-  CLI `bitty-plugin-lint` (bitty-plugin-sdk, R-SDK-2) against the accepted
-  contract in bitty-docs `docs/specifications/plugin-platform-rfc.md` (file
-  name, identity, compatibility, closed capability set, lazy triggers, hard
-  limits). The linter is a commit-pinned devDependency in `package.json` and
-  `bun.lock`; `just install` materializes it, and the gate fails closed when it
-  is absent.
-- `just lua` — parse the entry point with a pinned Lua parser.
-- `just test` — Lua 5.4 behavior suite plus the LuaLS conformance wrapper;
-  also available as `just test-lua` and `just test-luals`. The wrapper skips
-  with exit 0 when its optional tool is not installed (see
-  `tests/README.md`).
-
 ## Capabilities and privacy
 
 Capabilities are deny by default: a request absent from `[capabilities]` is
@@ -155,6 +179,72 @@ total. Malformed event payloads are ignored rather than counted.
 High-risk identifiers (`terminal.raw-read`, `terminal.input.all`,
 `ui.protocol-register`, `debug.control`, `runtime.plugin-manage`) are
 intentionally absent.
+
+## See the project workflow (CarryCtx)
+
+CarryCtx engineering state (tasks, sessions, checkpoints) is not cloned. A
+fresh clone restores it from the in-repo `refs/heads/carryctx-snapshots`
+branch:
+
+```sh
+just workflow-import-dry   # fetch + validate the snapshot; no DB writes
+just workflow-import       # initialize CarryCtx state if needed, then import
+```
+
+Then `carryctx stats` reports the restored tasks, sessions, and checkpoints.
+Provenance, redaction, and `--force` behavior are covered under the
+repository snapshot documentation below.
+
+## Layout
+
+| Path                                    | Purpose                                                                                            |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `bitty-plugin.toml`                     | Static manifest: identity, compatibility, capability requests, settings, and lazy commands/events. |
+| `lua/activity/init.lua`                 | Entry point evaluated once per activation; registrations and event subscriptions.                  |
+| `lua/activity/aggregate.lua`            | Bounded aggregate state, retention, exit/duration bucketing, and summary rendering.                |
+| `lua/activity/redact.lua`               | cwd reduction to bounded, non-reconstructable labels (final path segment).                         |
+| `tests/`                                | Behavior tests, mock host stub, and LuaLS conformance (see `tests/README.md`).                     |
+| `scripts/check-readme-settings.mjs`     | Checks the README configuration table against `bitty-plugin.toml` `[settings]`.                    |
+| `scripts/workflow-publish.sh`           | In-repo CarryCtx snapshot publisher (`carryctx export --publication` + ref push).                  |
+| `scripts/workflow-import.sh`            | Fresh-clone restore from `refs/heads/carryctx-snapshots`.                                          |
+| `justfile`                              | Quality gates with pinned tool versions.                                                           |
+| `.github/workflows/ci.yml`              | CI quality gate with a read-only token and SHA-pinned actions.                                     |
+| `.github/workflows/codeql.yml`          | CodeQL analysis (`actions`, `javascript-typescript`).                                              |
+| `.github/workflows/snapshot-source.yml` | CarryCtx snapshot staleness gate (push to `main`/`carryctx-snapshots`).                            |
+
+## Development
+
+Prerequisites: `just`, `bun`, and `lua5.4` for the behavior suite (CI pins
+Bun 1.4.0 and installs Lua 5.4). Dependency versions are pinned in
+`package.json` and locked in `bun.lock`; the justfile invokes installed tools
+as `bun run <bin>` and never invokes formatters or linters directly, so every
+gate resolves locally.
+
+```sh
+just install         # bun install --frozen-lockfile (the only networked gate step)
+just hooks-install   # optional: lefthook commit-msg and pre-commit hooks
+just check           # lint + fmt-check + manifest + readme-settings + lua + test (offline)
+```
+
+Individual gates:
+
+- `just lint` / `just lint-files` — Markdown lint (markdownlint-cli2).
+- `just fmt-check` / `just fmt-check-files` — Prettier format check.
+- `just commit-check` — Conventional Commit message check (commitlint).
+- `just manifest` — validate `bitty-plugin.toml` with the authoritative SDK
+  CLI `bitty-plugin-lint` (bitty-plugin-sdk, R-SDK-2) against the accepted
+  contract in bitty-docs `docs/specifications/plugin-platform-rfc.md` (file
+  name, identity, compatibility, closed capability set, settings declarations,
+  lazy triggers, hard limits). The linter is a commit-pinned devDependency in
+  `package.json` and `bun.lock`; `just install` materializes it, and the gate
+  fails closed when it is absent.
+- `just readme-settings` — check the README `## Configuration` table against
+  `[settings]`; a missing key, an extra key, or a type/default mismatch fails.
+- `just lua` — parse the entry point with a pinned Lua parser.
+- `just test` — Lua 5.4 behavior suite plus the LuaLS conformance wrapper;
+  also available as `just test-lua` and `just test-luals`. The wrapper skips
+  with exit 0 when its optional tool is not installed (see
+  `tests/README.md`).
 
 ## Workflow snapshot restore
 

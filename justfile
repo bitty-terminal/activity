@@ -66,6 +66,12 @@ manifest: deps
     @test -x node_modules/.bin/bitty-plugin-lint || { echo "bitty-plugin-lint is not installed; run 'just install'" >&2; exit 1; }
     bun run bitty-plugin-lint bitty-plugin.toml
 
+# Keep the README configuration table aligned with the manifest [settings]
+# allowlist: declared keys, types, and defaults must match, and the README must
+# not document a key the host would deny.
+readme-settings:
+    bun scripts/check-readme-settings.mjs
+
 # Parse the Lua entry point with the pinned Lua 5.1 grammar parser (luaparse,
 # version pinned in package.json + bun.lock).
 lua: deps
@@ -85,7 +91,7 @@ test-luals:
 test: test-lua test-luals
 
 # Aggregate gate run locally and in CI (after `just install`).
-check: lint fmt-check manifest lua test
+check: lint fmt-check manifest readme-settings lua test
 
 # Publish a redacted CarryCtx snapshot inside this repo (commander merge
 # closeout only; never a git hook). `carryctx export --publication` redacts the
