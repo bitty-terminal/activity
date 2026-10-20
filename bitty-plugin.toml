@@ -35,6 +35,15 @@ plugin-api = "^1.0"
 terminal.semantic-read = true
 platform.notify = true
 
+[settings]
+# Declared reads in lua/activity/init.lua. The host fails an undeclared
+# `bitty.settings.get` closed with `E_SETTINGS_UNDECLARED`, so every key the
+# entry point reads is declared here. Both are user-owned: the plugin never
+# writes them, and `store_command_args` is inert in v1 (arguments are never
+# stored either way).
+retention_days = { type = "int", default = 7 }
+store_command_args = { type = "bool", default = false }
+
 [lazy]
 # Static triggers let the host register the plugin without creating a VM.
 # Commands are plugin-qualified: `<plugin-id>:<resource>`.
