@@ -20,7 +20,7 @@ full paths, or environment values.
 
 ## Install
 
-Prerequisites: Bitty `>=0.0.24,<0.1` and Plugin API `^1.0` (from
+Prerequisites: Bitty `>=0.0.24` and Plugin API `^1.0` (from
 `bitty-plugin.toml` `[compat]`), plus `just` and `bun` only if you build from a
 checkout.
 
