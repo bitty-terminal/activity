@@ -103,6 +103,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a successful read or an explicit purge (`CTX-0015`, PLUG-APP-002).
 - A successful purge resets session pairing and error bookkeeping; a failed
   purge preserves prior state (`CTX-0016`, PLUG-APP-003).
+- The Markdown gate ignores nested `node_modules` at any depth and
+  `.worktrees`, so installed dependencies of a linked worktree are never
+  linted (`CTX-0017`).
 
 ### Security
 
