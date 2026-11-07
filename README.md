@@ -86,7 +86,7 @@ return {
   keymaps = {
     {
       chord = "ctrl+alt+a",
-      action = "bitty-featured.activity:summary",
+      action = "command:bitty-featured.activity:summary",
       context = "global",
     },
   },
