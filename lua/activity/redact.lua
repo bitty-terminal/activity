@@ -49,6 +49,9 @@ end
 -- The input must be valid UTF-8 (every label this module emits is). The
 -- result is valid UTF-8 and at most `limit` bytes.
 function M.truncate_utf8(value, limit)
+  if limit <= 0 then
+    return ""
+  end
   if #value <= limit then
     return value
   end
@@ -76,6 +79,51 @@ local function sequence_width(lead)
   return 0
 end
 
+local function is_valid_utf8_sequence(sequence, width)
+  if sequence == nil or #sequence ~= width then
+    return false
+  end
+  if utf8 ~= nil and utf8.len ~= nil then
+    local ok, len = pcall(utf8.len, sequence)
+    return ok and len == 1
+  end
+  local b1 = string.byte(sequence, 1)
+  local b2 = string.byte(sequence, 2)
+  if b2 < 128 or b2 > 191 then
+    return false
+  end
+  if width == 2 then
+    return b1 >= 194 and b1 <= 223
+  end
+  local b3 = string.byte(sequence, 3)
+  if b3 < 128 or b3 > 191 then
+    return false
+  end
+  if width == 3 then
+    if b1 == 224 and b2 < 160 then
+      return false
+    end
+    if b1 == 237 and b2 > 159 then
+      return false
+    end
+    return b1 >= 224 and b1 <= 239
+  end
+  local b4 = string.byte(sequence, 4)
+  if b4 < 128 or b4 > 191 then
+    return false
+  end
+  if width == 4 then
+    if b1 == 240 and b2 < 144 then
+      return false
+    end
+    if b1 == 244 and b2 > 143 then
+      return false
+    end
+    return b1 >= 240 and b1 <= 244
+  end
+  return false
+end
+
 -- Build a label that is valid UTF-8 by construction and never longer than
 -- `MAX_LABEL_BYTES`. Control bytes and invalid UTF-8 sequences become "?".
 local function sanitize(segment)
@@ -96,7 +144,7 @@ local function sanitize(segment)
     else
       local width = sequence_width(byte)
       local sequence = width > 0 and string.sub(segment, index, index + width - 1) or nil
-      if sequence ~= nil and #sequence == width and utf8.len(sequence) == 1 then
+      if is_valid_utf8_sequence(sequence, width) then
         parts[#parts + 1] = sequence
         total = total + width
         index = index + width
