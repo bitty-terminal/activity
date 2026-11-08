@@ -82,6 +82,27 @@ function M.run(context)
     12,
     "truncate keeps a 4-byte boundary"
   )
+  tap.equal(redact.truncate_utf8("abcdef", 0), "", "truncate at zero limit returns empty string")
+  tap.equal(redact.truncate_utf8("abcdef", -3), "", "truncate at negative limit returns empty string")
+
+  -- Fallback validation when global `utf8` is absent (activity#63).
+  local saved_utf8 = _G.utf8
+  _G.utf8 = nil
+  local ok_fallback, err_fallback = pcall(function()
+    tap.equal(redact.redact("/home/dev/项目😀é"), "项目😀é", "valid multi-byte UTF-8 works without utf8 global")
+    tap.equal(
+      redact.redact("/home/dev/" .. string.char(0xE0, 0x80, 0x80)),
+      "???",
+      "overlong 3-byte sequence is masked without utf8 global"
+    )
+    tap.equal(
+      redact.redact("/home/dev/" .. string.char(0xED, 0xA0, 0x80)),
+      "???",
+      "UTF-16 surrogate sequence is masked without utf8 global"
+    )
+  end)
+  _G.utf8 = saved_utf8
+  tap.equal(ok_fallback, true, "redact fallback without utf8 global did not throw: " .. tostring(err_fallback))
 end
 
 return M
