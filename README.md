@@ -18,6 +18,12 @@ by the `summary` command and a low-urgency local notification. The plugin opens
 no socket, spawns no process, and never stores command text, terminal contents,
 full paths, or environment values.
 
+Run `bitty-featured.activity:summary` from the command palette or a user
+keymap; the plugin installs no default chord. A first invocation on a fresh
+install reports zero sessions, because aggregates only appear after activity is
+observed. `bitty-featured.activity:clear` purges the stored aggregates and
+resets the in-memory pairing state.
+
 ## Install
 
 Prerequisites: Bitty `>=0.0.24` and Plugin API `^1.0` (from
